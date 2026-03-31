@@ -185,6 +185,7 @@ FROM
                 COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) + 
                 COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0) +
                 COALESCE(bf."Pension", h."Pension", 0) +
+                COALESCE(bf."Salary", h."Salary", 0) +
                 COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
                 COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
                 CASE 
