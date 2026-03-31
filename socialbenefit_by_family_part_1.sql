@@ -91,6 +91,7 @@ SELECT
     CASE WHEN "HH"."Count_30" = "HH"."Count_45_Matches" AND "HH"."Count_30" > 0 THEN 1 ELSE 0 END AS "45", 
     COALESCE("HH"."Count_46", 0) AS "46", 
     COALESCE("HH"."Count_47", 0) AS "47", 
+    COALESCE("HH"."Total_48", 0) AS "48",
     COALESCE("HH"."TotalSalarySum", 0) AS "49", 
     COALESCE("Benefit"."LivestockIncome", "App"."LivestockIncome", 0) + COALESCE("HH"."RealEstateIncomeSum", 0) AS "50",
     COALESCE("HH"."RealEstateIncomeSum", 0) AS "52",
@@ -176,6 +177,21 @@ FROM
                 COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
                 COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)
             ) AS "Total_70",
+            SUM(
+                COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
+                COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
+                COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
+                COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
+                COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) + 
+                COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0) +
+                COALESCE(bf."Pension", h."Pension", 0) +
+                COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
+                COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
+                CASE 
+                    WHEN bf."EmploymentStartDate" > a."DateSubmitted" THEN COALESCE("BFH"."HistorySalary", 0)
+                    ELSE 0
+                END
+            ) AS "Total_48",
             SUM(COALESCE(bf."Salary", h."Salary", 0) + COALESCE(bf."Pension", h."Pension", 0) + COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)) AS "TotalIncome", 
             SUM(COALESCE(bf."Salary", h."Salary", 0)) AS "TotalSalarySum", 
             SUM(COALESCE(bf."Pension", h."Pension", 0)) AS "TotalPensionSum", 
@@ -185,8 +201,16 @@ FROM
             SUM(COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)) AS "RealEstateIncomeSum", 
             MIN(CASE WHEN COALESCE(bf."AssignedSum", h."AssignedSum", 0) > 0 THEN 1 ELSE 0 END) AS "AllMembersHaveSum"
         FROM "Household" AS h
+        LEFT JOIN "Application" AS a ON h."ApplicationID" = a."ID"
         LEFT JOIN "Benefit" AS b ON h."ApplicationID" = b."ApplicationID"
         LEFT JOIN "BenefitFamily" AS bf ON b."ID" = bf."BenefitID" AND h."SSN" = bf."SSN"
+        LEFT JOIN (
+            SELECT 
+                "BenefitFamilyID",
+                SUM(COALESCE("Salary", 0)) AS "HistorySalary"
+            FROM "BenefitFamilyHistory"
+            GROUP BY "BenefitFamilyID"
+        ) AS "BFH" ON bf."ID" = "BFH"."BenefitFamilyID"
         WHERE COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
         GROUP BY h."ApplicationID"
     ) AS "HH" ON "App"."ID" = "HH"."ApplicationID"
@@ -237,5 +261,5 @@ GROUP BY
     "ApplicationEvaluation"."AdultEquivalentMonthlyIncome",
     "Benefit"."LivestockIncome", "ApplicationEvaluation"."LivestockIncome",
     "HH"."Count_35", "HH"."Count_36", "HH"."Count_37", "HH"."Count_38", "HH"."Count_39", "HH"."TotalIncome", "HH"."Count_40", "HH"."Count_41", "HH"."Count_42", "HH"."Count_43", "HH"."Count_44", "Benefit"."StopDate", "LAF"."FirstSubmissionDate",
-    "HH"."TotalMembers", "HH"."Count_45_Matches", "HH"."Count_46", "HH"."Count_47", "HH"."Total_66", "HH"."Total_70", "HH"."73", "HH"."TotalSalarySum", "HH"."TotalPensionSum", "HH"."TotalAssignedSum", "HH"."Count_72", "HH"."RealEstateIncomeSum",
+    "HH"."TotalMembers", "HH"."Count_45_Matches", "HH"."Count_46", "HH"."Count_47", "HH"."Total_48", "HH"."Total_66", "HH"."Total_70", "HH"."73", "HH"."TotalSalarySum", "HH"."TotalPensionSum", "HH"."TotalAssignedSum", "HH"."Count_72", "HH"."RealEstateIncomeSum",
     "LS"."53", "LS"."54", "LS"."55", "LS"."56", "LS"."57", "LS"."58", "LS"."60", "LS"."61", "LS"."63", "LS"."64", "LS"."65", "LS"."66";
