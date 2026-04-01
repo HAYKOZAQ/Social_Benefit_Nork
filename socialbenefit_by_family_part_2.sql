@@ -45,9 +45,9 @@ SELECT
     -- Calculation 100: The logic you requested
     CASE 
         WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
-            CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - ("HH"."73") / NULLIF("Eval"."AdultEquivalent", 0) < 35875.00 THEN 1 ELSE 0 END
+            CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - ("HH"."73") / NULLIF("Eval"."AdultEquivalent", 0) >= 35875.00 THEN 1 ELSE 0 END
         WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
-            CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - ("HH"."73") / NULLIF("Eval"."AdultEquivalent", 0) < 34581.00 THEN 1 ELSE 0 END
+            CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - ("HH"."73") / NULLIF("Eval"."AdultEquivalent", 0) >= 34581.00 THEN 1 ELSE 0 END
         ELSE 0 
     END AS "100",
 
