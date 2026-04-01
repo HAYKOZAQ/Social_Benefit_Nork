@@ -58,10 +58,12 @@ SELECT
     (COALESCE("HH"."HH_Income_Subtotal", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) / NULLIF("Eval"."AdultEquivalent", 0) AS "76", 
     (34581 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0)) AS "77", 
     CASE 
-        WHEN ((COALESCE("HH"."HH_Income_Subtotal", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) / NULLIF("Eval"."AdultEquivalent", 0)) > (34581 * 1.6) 
-        THEN 1 ELSE 0 
-    END AS "78", 
-    COALESCE("HH"."101", 0) AS "101",
+        WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
+            CASE WHEN (("Eval"."AdultEquivalentMonthlyIncome" + "HH"."73") / NULLIF("Eval"."AdultEquivalent", 0)) >= 35875.00 THEN 1 ELSE 0 END
+        WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
+            CASE WHEN (("Eval"."AdultEquivalentMonthlyIncome" + "HH"."73") / NULLIF("Eval"."AdultEquivalent", 0)) >= 34581.00 THEN 1 ELSE 0 END
+        ELSE 0 
+    END AS "101",
 
     -- Rejection & Inspection Logic
     COALESCE("Rej"."Is_Only_8", 0) AS "102",
