@@ -235,7 +235,7 @@ SELECT "App"."Num" AS "1",
             "BF"."RealEstateNetIncomeAmount",
             "H"."RealEstateNetIncomeAmount",
             0
-        ) + COALESCE("BF"."AssignedSum", "H"."AssignedSum", 0) + + COALESCE("BF"."AdditionalAssignment", 0)
+        ) + COALESCE("BF"."AssignedSum", "H"."AssignedSum", 0) + COALESCE("BF"."AdditionalAssignment", 0)
     ) AS "35",
     -- 44: LoanRepaymentAmount indicator
     CASE
