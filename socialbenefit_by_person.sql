@@ -141,18 +141,28 @@ SELECT "App"."Num" AS "1",
     -- 23: Support check flag (Any support type not null)
     CASE
         WHEN COALESCE(
+            "BF"."Salary", 
+            "H"."Salary",
             "BF"."Pension",
             "H"."Pension",
             "BF"."RentalAssistanceAmount",
             "H"."RentalAssistanceAmount",
             "BF"."MigrantSupportAmount",
             "H"."MigrantSupportAmount",
+            "BF"."ZinapahAmount",
+            "H"."ZinapahAmount",
             "BF"."RefugeeSupportAmount",
             "H"."RefugeeSupportAmount",
+            "BF"."FosterFamilyAmount",
+            "H"."FosterFamilyAmount",
             "BF"."OrphanSupportAmount",
             "H"."OrphanSupportAmount",
+            "BF"."RealEstateNetIncomeAmount",
+            "H"."RealEstateNetIncomeAmount",
             "BF"."UrgentSupportAmount",
-            "H"."UrgentSupportAmount"
+            "H"."UrgentSupportAmount",
+            "BF"."ArtsakhSupportAmount",
+            "H"."ArtsakhSupportAmount"
         ) IS NOT NULL THEN 1
         ELSE 0
     END AS "23",
@@ -208,33 +218,20 @@ SELECT "App"."Num" AS "1",
     -- 34: AssignedSum amount
     COALESCE("BF"."AssignedSum", "H"."AssignedSum") AS "34",
     -- 35: Grand Total Monthly Income
-    (
-        COALESCE("BF"."Salary", "H"."Salary", 0) + COALESCE("BF"."Pension", "H"."Pension", 0) + COALESCE(
-            "BF"."RentalAssistanceAmount",
-            "H"."RentalAssistanceAmount",
-            0
-        ) + COALESCE("BF"."ZinapahAmount", "H"."ZinapahAmount", 0) + COALESCE(
-            "BF"."MigrantSupportAmount",
-            "H"."MigrantSupportAmount",
-            0
-        ) + COALESCE(
-            "BF"."RefugeeSupportAmount",
-            "H"."RefugeeSupportAmount",
-            0
-        ) + COALESCE(
-            "BF"."OrphanSupportAmount",
-            "H"."OrphanSupportAmount",
-            0
-        ) + COALESCE(
-            "BF"."FosterFamilyAmount",
-            "H"."FosterFamilyAmount",
-            0
-        ) + COALESCE(
-            "BF"."RealEstateNetIncomeAmount",
-            "H"."RealEstateNetIncomeAmount",
-            0
-        ) + COALESCE("BF"."AssignedSum", "H"."AssignedSum", 0)
-    ) AS "35",
+(
+    COALESCE("BF"."Salary", "H"."Salary", 0) +
+    COALESCE("BF"."Pension", "H"."Pension", 0) +
+    COALESCE("BF"."AssignedSum", "H"."AssignedSum", 0) +
+    COALESCE("BF"."AdditionalAssignment",0) +
+    COALESCE("BF"."RentalAssistanceAmount", "H"."RentalAssistanceAmount", 0) +
+    COALESCE("BF"."ZinapahAmount", "H"."ZinapahAmount", 0) +
+    COALESCE("BF"."MigrantSupportAmount", "H"."MigrantSupportAmount", 0) +
+    COALESCE("BF"."RefugeeSupportAmount", "H"."RefugeeSupportAmount", 0) +
+    COALESCE("BF"."FosterFamilyAmount", "H"."FosterFamilyAmount", 0) +
+    COALESCE("BF"."RealEstateNetIncomeAmount", "H"."RealEstateNetIncomeAmount", 0) +
+    COALESCE("BF"."UrgentSupportAmount", "H"."UrgentSupportAmount", 0) +
+    COALESCE("BF"."ArtsakhSupportAmount", "H"."ArtsakhSupportAmount", 0)
+) AS "35",
     -- 44: LoanRepaymentAmount indicator
     CASE
         WHEN COALESCE(
