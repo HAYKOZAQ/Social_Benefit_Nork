@@ -29,12 +29,21 @@ WITH LatestAppFilter AS (
             )
         )
 ),
+-- Applications with ONLY RejectionReasonID = 3
 RejectionThreeOnly AS (
     SELECT 
         "ApplicationID"
     FROM "ApplicationRejection"
     GROUP BY "ApplicationID"
     HAVING COUNT(*) = 1 AND MIN("RejectionReasonID") = 3
+),
+-- Applications with ONLY StopFactorID = 3
+StopThreeOnly AS (
+    SELECT 
+        "ApplicationID"
+    FROM "ApplicationStopFactor"
+    GROUP BY "ApplicationID"
+    HAVING COUNT(*) = 1 AND MIN("StopFactorID") = 3
 )
 
 SELECT
@@ -42,12 +51,16 @@ SELECT
     "App"."Num" AS "1", 
     "LAF"."Total_Applications" AS "Total_Count",
     
-    -- Calculation 100: The logic you requested
+    -- Calculation 100: Guard with R3/S3 presence, then year-based threshold
     CASE 
-        WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
-            CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - ("HH"."73") / NULLIF("Eval"."AdultEquivalent", 0) >= 35875.00 THEN 1 ELSE 0 END
-        WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
-            CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - ("HH"."73") / NULLIF("Eval"."AdultEquivalent", 0) >= 34581.00 THEN 1 ELSE 0 END
+        WHEN ("R3"."ApplicationID" IS NOT NULL OR "S3"."ApplicationID" IS NOT NULL) THEN
+            CASE 
+                WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
+                    CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - (COALESCE("HH"."73", 0) / NULLIF("Eval"."AdultEquivalent", 0)) >= 35875.00 THEN 1 ELSE 0 END
+                WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
+                    CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - (COALESCE("HH"."73", 0) / NULLIF("Eval"."AdultEquivalent", 0)) >= 34581.00 THEN 1 ELSE 0 END
+                ELSE 0 
+            END
         ELSE 0 
     END AS "100",
 
@@ -93,14 +106,13 @@ SELECT
 FROM
     "Application" AS "App"
     INNER JOIN LatestAppFilter AS "LAF" ON "App"."ID" = "LAF"."TargetAppID"
-    INNER JOIN RejectionThreeOnly AS "R3" ON "App"."ID" = "R3"."ApplicationID"
+    LEFT JOIN RejectionThreeOnly AS "R3" ON "App"."ID" = "R3"."ApplicationID"
+    LEFT JOIN StopThreeOnly AS "S3" ON "App"."ID" = "S3"."ApplicationID"
     LEFT JOIN (
         SELECT
             h."ApplicationID", 
             SUM(COALESCE(bf."AssignedSum", h."AssignedSum", 0) + COALESCE(bf."AdditionalAssignment", 0)) AS "73", 
             SUM(COALESCE(bf."Salary", h."Salary", 0) + COALESCE(bf."Pension", h."Pension", 0) + COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)) AS "HH_Income_Subtotal",
-            -- Keep original 101 logic here if needed
-            MAX(CASE WHEN (COALESCE(bf."Salary", h."Salary", 0) + COALESCE(bf."Pension", h."Pension", 0) + COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) + COALESCE(bf."AssignedSum", h."AssignedSum", 0)) >= (CASE WHEN EXTRACT(YEAR FROM inner_a."DateSubmitted") = 2026 THEN 35875.00 ELSE 34581.00 END) THEN 1 ELSE 0 END) AS "101",
             MAX(b."BaseBenefit") AS "Benefit_BaseBenefit",
             MAX(b."Supplement") AS "Benefit_Supplement"
         FROM "Household" AS h
@@ -131,8 +143,11 @@ FROM
     LEFT JOIN "Benefit" ON "App"."ID" = "Benefit"."ApplicationID"
 WHERE "LAF"."rn" = 1 
 GROUP BY
-    "App"."ID", "App"."Num", "App"."DateSubmitted", "LAF"."Total_Applications", "HH"."73", "Benefit"."AdultEquivalent", "Eval"."AdultEquivalent", 
+    "App"."ID", "App"."Num", "App"."DateSubmitted", "LAF"."Total_Applications", 
+    "HH"."73", "Benefit"."AdultEquivalent", "Eval"."AdultEquivalent", 
     "HH"."HH_Income_Subtotal", "App"."LivestockIncome", "Eval"."AdultEquivalentMonthlyIncome", 
-    "HH"."101", "Rej"."Is_Only_8", "Rej"."Has_8_And_3", 
-    "Eval"."InspectionScore", "SF_Check"."Is_Only_9", "HH"."Benefit_BaseBenefit", 
-    "Eval"."BaseBenefit", "HH"."Benefit_Supplement", "Eval"."Supplement";
+    "R3"."ApplicationID", "S3"."ApplicationID",
+    "Rej"."Is_Only_8", "Rej"."Has_8_And_3", 
+    "Eval"."InspectionScore", "SF_Check"."Is_Only_9", 
+    "HH"."Benefit_BaseBenefit", "Eval"."BaseBenefit", 
+    "HH"."Benefit_Supplement", "Eval"."Supplement";
