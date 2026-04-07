@@ -208,7 +208,7 @@ SELECT "App"."Num" AS "1",
         ELSE 0
     END AS "33",
     -- 34: AssignedSum amount
-    COALESCE("BF"."AssignedSum", "H"."AssignedSum") AS "34",
+    COALESCE("BF"."AssignedSum", "H"."AssignedSum") + COALESCE("BF"."AdditionalAssignment", 0)  AS "34",
     -- 35: Grand Total Monthly Income
     (
         COALESCE("BF"."Salary", "H"."Salary", 0) + COALESCE("BF"."Pension", "H"."Pension", 0) + COALESCE(
@@ -235,7 +235,7 @@ SELECT "App"."Num" AS "1",
             "BF"."RealEstateNetIncomeAmount",
             "H"."RealEstateNetIncomeAmount",
             0
-        ) + COALESCE("BF"."AssignedSum", "H"."AssignedSum", 0)
+        ) + COALESCE("BF"."AssignedSum", "H"."AssignedSum", 0) + + COALESCE("BF"."AdditionalAssignment", 0)
     ) AS "35",
     -- 44: LoanRepaymentAmount indicator
     CASE
