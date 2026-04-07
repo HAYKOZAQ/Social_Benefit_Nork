@@ -67,9 +67,11 @@ SELECT "App"."Num" AS "1",
         ELSE 0
     END AS "7",
     -- 8: IsStudent
-    CASE
-        WHEN COALESCE("BF"."IsStudent", "H"."IsStudent") = 't' THEN 1
-        ELSE 0
+    CASE 
+        WHEN "H"."IsStudent" = 't' 
+          AND "H"."Age" BETWEEN 18 AND 22 
+        THEN 1 
+        ELSE 0 
     END AS "8",
     -- 9: IsPregnant
     CASE
