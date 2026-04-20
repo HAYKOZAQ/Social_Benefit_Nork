@@ -127,7 +127,7 @@ SELECT "App"."Num" AS "1",
     END AS "13",
     -- 15: Employment indicator
     CASE
-        WHEN COALESCE("BF"."IsEmployed", "H"."IsEmployed", 'f') = 't' THEN 1
+        WHEN COALESCE("BF"."Salary", "H"."Salary", 0) <> 0 THEN 1
         ELSE 0
     END AS "15",
     -- 16: Salary amount
