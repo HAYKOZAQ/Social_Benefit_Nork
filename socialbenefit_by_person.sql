@@ -143,24 +143,16 @@ SELECT "App"."Num" AS "1",
     -- 23: Support check flag (Any support type not null)
     CASE
         WHEN COALESCE(
-            "BF"."Salary", 
-            "H"."Salary",
-            "BF"."Pension",
-            "H"."Pension",
             "BF"."RentalAssistanceAmount",
             "H"."RentalAssistanceAmount",
             "BF"."MigrantSupportAmount",
             "H"."MigrantSupportAmount",
-            "BF"."ZinapahAmount",
-            "H"."ZinapahAmount",
             "BF"."RefugeeSupportAmount",
             "H"."RefugeeSupportAmount",
             "BF"."FosterFamilyAmount",
             "H"."FosterFamilyAmount",
             "BF"."OrphanSupportAmount",
             "H"."OrphanSupportAmount",
-            "BF"."RealEstateNetIncomeAmount",
-            "H"."RealEstateNetIncomeAmount",
             "BF"."UrgentSupportAmount",
             "H"."UrgentSupportAmount",
             "BF"."ArtsakhSupportAmount",
@@ -218,7 +210,7 @@ SELECT "App"."Num" AS "1",
         ELSE 0
     END AS "33",
     -- 34: AssignedSum amount
-    COALESCE("BF"."AssignedSum", "H"."AssignedSum") AS "34",
+    COALESCE("BF"."AssignedSum"+ "BF"."AdditionalAssignment", "H"."AssignedSum") AS "34",
     -- 35: Grand Total Monthly Income
 (
     COALESCE("BF"."Salary", "H"."Salary", 0) +
