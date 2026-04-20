@@ -80,7 +80,7 @@ SELECT
                 ELSE 0 
             END
         ELSE 0 
-    END AS "101,
+    END AS "101",
 
     -- Rejection & Inspection Logic
     COALESCE("Rej"."Is_Only_8", 0) AS "102",
