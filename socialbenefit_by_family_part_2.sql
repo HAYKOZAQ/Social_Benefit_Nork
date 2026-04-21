@@ -70,6 +70,16 @@ SELECT
     (COALESCE("HH"."HH_Income_Subtotal", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) AS "75", 
     (COALESCE("HH"."HH_Income_Subtotal", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) / NULLIF("Eval"."AdultEquivalent", 0) AS "76", 
     (34581 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0)) AS "77", 
+    
+              CASE 
+                  WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
+                      (35875 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0))
+                  WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
+                      (34581 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0))
+                  ELSE 0 
+      END AS "77_1",
+    
+    
     CASE 
         WHEN ("R3"."ApplicationID" IS NOT NULL OR "S3"."ApplicationID" IS NOT NULL) THEN
             CASE 
@@ -82,7 +92,7 @@ SELECT
         ELSE 0 
     END AS "101",
 
-    -- Rejection & Inspection Logic
+--     Rejection & Inspection Logic
     COALESCE("Rej"."Is_Only_8", 0) AS "102",
     COALESCE("Rej"."Has_8_And_3", 0) AS "103",
     CASE WHEN "Eval"."InspectionScore" IS NOT NULL THEN 1 ELSE 0 END AS "104",
@@ -95,6 +105,8 @@ SELECT
     COALESCE("HH"."Benefit_Supplement", "Eval"."Supplement", 0) AS "108",
     (COALESCE("HH"."Benefit_BaseBenefit", "Eval"."BaseBenefit", 0) + 
      COALESCE("HH"."Benefit_Supplement", "Eval"."Supplement", 0)) AS "109",
+    case when "HH"."Benefit_BaseBenefit" is not null then 'Benefit' else 'Application' end as "Benefit/Applicaiton",
+     
 
     -- Pivoted Stop Factors
     MAX(CASE WHEN "SF"."Name" = 'Շարժական գույք' THEN 1 ELSE 0 END) AS "92-99(1)", 
@@ -155,3 +167,4 @@ GROUP BY
     "Eval"."InspectionScore", "SF_Check"."Is_Only_9", 
     "HH"."Benefit_BaseBenefit", "Eval"."BaseBenefit", 
     "HH"."Benefit_Supplement", "Eval"."Supplement";
+    
