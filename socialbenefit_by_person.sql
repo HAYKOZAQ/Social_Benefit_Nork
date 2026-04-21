@@ -31,6 +31,8 @@ WITH LatestAppFilter AS (
 )
 SELECT "App"."Num" AS "1",
     "H"."ID" AS "2",
+    COALESCE("BF"."SSN", "H"."SSN") AS "SSN",
+    COALESCE("BF"."AbsenceReasonID", "H"."AbsenceReasonID") AS "AbsenceReasonID",
     -- 3: Primary Applicant status translated
     CASE
         WHEN COALESCE(
@@ -246,3 +248,4 @@ FROM "Application" AS "App"
     LEFT JOIN "BenefitFamily" AS "BF" ON "B"."ID" = "BF"."BenefitID"
     AND "H"."SSN" = "BF"."SSN"
 WHERE "LAF"."rn" = 1 -- Filter for physical presence (AbsenceReasonID is NULL)
+AND COALESCE("BF"."AbsenceReasonID", "H"."AbsenceReasonID") IS NULL
