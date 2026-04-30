@@ -68,7 +68,7 @@ SELECT
     COALESCE("HH"."73", 0) AS "73", 
     COALESCE("HH"."73", 0) / NULLIF(COALESCE("Benefit"."AdultEquivalent", "Eval"."AdultEquivalent", 0), 0) AS "74", 
     (COALESCE("HH"."HH_Income_Subtotal", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) AS "75", 
-    (COALESCE("HH"."HH_Income_Subtotal", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) / NULLIF("Eval"."AdultEquivalent", 0) AS "76", 
+(COALESCE("HH"."HH_Income_Subtotal", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0) + COALESCE(MAX("Benefit"."BenefitAmount"), 0)) / NULLIF("Eval"."AdultEquivalent", 0) AS "76", 
     (34581 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0)) AS "77", 
     
               CASE 
@@ -101,10 +101,10 @@ SELECT
         WHEN COALESCE("Rej"."Is_Only_8", 0) = 1 AND COALESCE("SF_Check"."Is_Only_9", 0) = 1 
         THEN 1 ELSE 0 
     END AS "106",
-    COALESCE("HH"."Benefit_BaseBenefit", "Eval"."BaseBenefit", 0) AS "107",
-    COALESCE("HH"."Benefit_Supplement", "Eval"."Supplement", 0) AS "108",
-    (COALESCE("HH"."Benefit_BaseBenefit", "Eval"."BaseBenefit", 0) + 
-     COALESCE("HH"."Benefit_Supplement", "Eval"."Supplement", 0)) AS "109",
+    COALESCE("Benefit"."BaseBenefit", 0) AS "107",
+    COALESCE("Benefit"."Supplement", 0) AS "108",
+    (COALESCE("Benefit"."BaseBenefit", 0) + 
+    COALESCE("Benefit"."Supplement", 0)) AS "109",
     case when "HH"."Benefit_BaseBenefit" is not null then 'Benefit' else 'Application' end as "Benefit/Applicaiton",
      
 
@@ -165,6 +165,8 @@ GROUP BY
     "R3"."ApplicationID", "S3"."ApplicationID",
     "Rej"."Is_Only_8", "Rej"."Has_8_And_3", 
     "Eval"."InspectionScore", "SF_Check"."Is_Only_9", 
-    "HH"."Benefit_BaseBenefit", "Eval"."BaseBenefit", 
-    "HH"."Benefit_Supplement", "Eval"."Supplement";
+    "HH"."Benefit_BaseBenefit", "Eval"."BaseBenefit",
+    "Benefit"."BaseBenefit",
+    "HH"."Benefit_Supplement", "Eval"."Supplement",
+    "Benefit"."Supplement";;
     
