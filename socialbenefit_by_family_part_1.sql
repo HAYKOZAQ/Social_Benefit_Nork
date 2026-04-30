@@ -107,11 +107,11 @@ SELECT
 
     COALESCE("HH"."Total_66", 0) AS "66", 
     COALESCE("HH"."TotalPensionSum", 0) AS "69", 
-    (COALESCE("HH"."Total_70", 0) + COALESCE("App"."LivestockIncome", 0)) AS "70", 
-    (COALESCE("HH"."Total_70", 0) + COALESCE("App"."LivestockIncome", 0)) / NULLIF(COALESCE("Benefit"."AdultEquivalent", "ApplicationEvaluation"."AdultEquivalent"), 0) AS "71", 
+    (COALESCE("HH"."Total_70", 0) + COALESCE("Benefit"."LivestockIncome", 0)) AS "70", 
+((COALESCE("HH"."Total_70", 0) + COALESCE("Benefit"."LivestockIncome", 0)) - COALESCE(MAX("Benefit"."BenefitAmount"), 0)) / NULLIF(COALESCE("Benefit"."AdultEquivalent", "ApplicationEvaluation"."AdultEquivalent"), 0) AS "71", 
     COALESCE("HH"."Count_72", 0) AS "72",
-    (COALESCE("HH"."Total_70", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) AS "75",
-    (COALESCE("HH"."Total_70", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) / NULLIF(COALESCE("Benefit"."AdultEquivalent", "ApplicationEvaluation"."AdultEquivalent"), 0) AS "76"
+    (COALESCE("HH"."Total_70", 0) + COALESCE("Benefit"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) AS "75",
+    (COALESCE("HH"."Total_70", 0) + COALESCE("Benefit"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) / NULLIF(COALESCE("Benefit"."AdultEquivalent", "ApplicationEvaluation"."AdultEquivalent"), 0) AS "76"
 FROM
     "Application" AS "App"
     INNER JOIN LatestAppFilter AS "LAF" ON "App"."ID" = "LAF"."TargetAppID"
@@ -177,8 +177,8 @@ FROM
                 COALESCE(bf."Salary", h."Salary", 0) +
                 COALESCE(bf."Pension", h."Pension", 0) +
                 COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
-                COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)
-            ) AS "Total_70",
+                COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0))
+                + COALESCE(MAX(b."BenefitAmount"), 0) AS "Total_70",
             SUM(
                 COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
                 COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
