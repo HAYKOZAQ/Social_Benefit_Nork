@@ -4,14 +4,18 @@ WITH LatestAppFilter AS (
         H."SSN" AS "Primary_SSN",
         MIN(A."DateSubmitted") OVER(PARTITION BY H."SSN") AS "FirstSubmissionDate",
         COUNT(*) OVER(PARTITION BY H."SSN") AS "Total_Applications",
+        FIRST_VALUE(A."ID") OVER(
+            PARTITION BY H."SSN" 
+            ORDER BY A."DateSubmitted" DESC NULLS LAST, A."ID" DESC
+        ) AS "LatestDateAppID",
         ROW_NUMBER() OVER(
             PARTITION BY H."SSN" 
             ORDER BY A."ID" DESC
-        ) AS "rn"
-    FROM "Application" AS A
-    INNER JOIN "Household" AS H ON A."ID" = H."ApplicationID"
-    LEFT JOIN "Benefit" AS B ON A."ID" = B."ApplicationID"
-    LEFT JOIN "BenefitFamily" AS BF ON B."ID" = BF."BenefitID" AND H."SSN" = BF."SSN"
+        ) AS rn
+    FROM "public"."Application" AS A
+    INNER JOIN "public"."Household" AS H ON A."ID" = H."ApplicationID"
+    LEFT JOIN "public"."Benefit" AS B ON A."ID" = B."ApplicationID"
+    LEFT JOIN "public"."BenefitFamily" AS BF ON B."ID" = BF."BenefitID" AND H."SSN" = BF."SSN"
     WHERE A."ApplicationTypeID" = 1
         AND H."IsPrimaryApplicant" = 't'
         AND A."Num" NOT LIKE '%ՆԽ%'
@@ -21,240 +25,588 @@ WITH LatestAppFilter AS (
             OR 
             EXISTS (
                 SELECT 1 
-                FROM "Household" H2
-                LEFT JOIN "Benefit" B2 ON H2."ApplicationID" = B2."ApplicationID"
-                LEFT JOIN "BenefitFamily" BF2 ON B2."ID" = BF2."BenefitID" AND H2."SSN" = BF2."SSN"
+                FROM "public"."Household" H2
+                LEFT JOIN "public"."Benefit" B2 ON H2."ApplicationID" = B2."ApplicationID"
+                LEFT JOIN "public"."BenefitFamily" BF2 ON B2."ID" = BF2."BenefitID" AND H2."SSN" = BF2."SSN"
                 WHERE H2."ApplicationID" = A."ID"
                   AND COALESCE(BF2."AbsenceReasonID", H2."AbsenceReasonID") IS NULL
             )
         )
-),
--- Applications with ONLY RejectionReasonID = 3
-RejectionThreeOnly AS (
-    SELECT 
-        "ApplicationID"
-    FROM "ApplicationRejection"
-    GROUP BY "ApplicationID"
-    HAVING COUNT(*) = 1 AND MIN("RejectionReasonID") = 3
-),
--- Applications with ONLY StopFactorID = 3
-StopThreeOnly AS (
-    SELECT 
-        "ApplicationID"
-    FROM "ApplicationStopFactor"
-    GROUP BY "ApplicationID"
-    HAVING COUNT(*) = 1 AND MIN("StopFactorID") = 3
 )
-
-SELECT
-    "App"."ID" AS "APPLICATIONID", 
-    "App"."Num" AS "1", 
-    "App"."Content" -> 'CitizenData' -> 'ActualAddress' ->> 'Region' AS "2", 
-    "App"."Content" -> 'CitizenData' -> 'ActualAddress' ->> 'Community' AS "3",
-    "App"."Content" -> 'CitizenData' -> 'RegistrationAddress' ->> 'Region' AS "2_1", 
-    "App"."Content" -> 'CitizenData' -> 'RegistrationAddress' ->> 'Community' AS "3_1",
+SELECT 
+    laf."TargetAppID" AS "V01",
+    app."Content" -> 'CitizenData' -> 'ActualAddress' ->> 'Region' AS "V02",
+    app."Content" -> 'CitizenData' -> 'ActualAddress' ->> 'Community' AS "V03",
+    laf."LatestDateAppID" AS "V04",
     CASE 
-        WHEN "App"."Status" IN (20,25,26,30) THEN 1
-        WHEN "App"."Status" IN (1, 2, 3, 4, 6, 7, 8, 9, 22, 27, 28) THEN 0
-        ELSE NULL 
-    END AS "4", 
+        WHEN app."Status" = 5 THEN 1
+        WHEN app."Status" IN (0, 1, 2, 3, 4, 6, 7, 8, 9, 22, 27, 28) THEN 2
+        WHEN app."Status" IN (31, 30, 26, 25, 20) THEN 3
+        ELSE NULL
+    END AS "V05",
     CASE 
-        WHEN "App"."Status" IN (5,20,21,25,26,30) THEN 1
-        WHEN "App"."Status" IN (1, 2, 3, 4, 6, 7, 8, 9, 22, 27, 28) THEN 0
-        ELSE NULL 
-    END AS "5",  
-    CASE 
-        WHEN "Benefit"."BenefitStatusID" IN (0, 1, 2) THEN 1
-        WHEN "Benefit"."BenefitStatusID" IN (3, 4) THEN 0
-        ELSE NULL 
-    END AS "6", 
-    EXTRACT(YEAR FROM AGE('2026-02-24', "LAF"."FirstSubmissionDate")) * 12 +
-    EXTRACT(MONTH FROM AGE('2026-02-24', "LAF"."FirstSubmissionDate")) as "10",
-    EXTRACT(YEAR FROM AGE(COALESCE("Benefit"."StopDate", '2026-02-24'), "Benefit"."OrderDate")) * 12 +
-    EXTRACT(MONTH FROM AGE(COALESCE("Benefit"."StopDate", '2026-02-24'), "Benefit"."OrderDate")) as "11",
-    "LAF"."Total_Applications" AS "12",
-    "LAF"."Total_Applications" AS "Total_Count",
-
-    MAX(CASE WHEN "RR"."Name" = 'Դիմումը, դրանում ներկայացված տվյալները կամ փաստաթղթերը չեն համապատասխանում օրենսդրությամբ և ՀՀ կառավարության 09.01.2025 թ. N 27-Ն որոշմամբ սահմանված պայմաններին և պահանջներին' THEN 1 ELSE 0 END) AS "13-19(1)", 
-    MAX(CASE WHEN "RR"."Name" = 'Դիմումի բնօրինակը չի ներկայացվել Միասնական սոցիալական ծառայության համապատասխան տարածքային կենտրոն՝ այն ներբեռնելուց հետո երեք աշխատանքային օրվա ընթացքում' THEN 1 ELSE 0 END) AS "13-19(2)", 
-    MAX(CASE WHEN "RR"."Name" = 'Ընտանիքի որևէ անդամի համար ներկայացված՝ անապահովության նպաստ ստանալու իրավունքի որոշման համար հիմք հանդիսացող տվյալները (փաստաթղթերը) հավաստի չեն կամ կեղծ են (առկա է անհամապատասխանություն ընտանիքի կազմի և Բնակչության պետական ռեգիստրի տվյալների միջև)' THEN 1 ELSE 0 END) AS "13-19(3)", 
-    MAX(CASE WHEN "RR"."Name" = 'Ընտանիքում չափահաս աշխատունակ, բայց չզբաղված անդամի կողմից աշխատանք փնտրող անձի կողմից հաշվառվելու համար դիմում չներկայացնելը' THEN 1 ELSE 0 END) AS "13-19(4)", 
-    MAX(CASE WHEN "RR"."Name" = 'Ընտանիքի մեկ հաշվարկային անդամի ամսական եկամտի չափը բարձր է Հայաստանի Հանրապետության կառավարության կողմից տվյալ տարվա համար սահմանված անապահովության նպաստ ստանալու իրավունք տվող սահմանային շեմից' THEN 1 ELSE 0 END) AS "13-19(5-6)", 
-    MAX(CASE WHEN "RR"."Name" = 'Առկա է ՀՀ կառավարության 09.01.2025 թ. N 27-Ն որոշման N 1 հավելվածով սահմանված որևէ բացառող գործոն' THEN 1 ELSE 0 END) AS "13-19(7)", 
-    MAX(CASE WHEN "RR"."Name" in ('Ընտանիքի համար հաշվարկված անապահովության նպաստի չափը ցածր է Հայասանտանի Հանրապետության կառավարության կողմից տվյալ տարվա համար սահմանված անապահովության նպաստի նվազագույն չափից', 'Ընտանիքի անապահովության գնահատման դիմումում չեն լրացվել ու ներկայացվել այն երեխայի տվյալները, ում համար ներկայացվել է դիմում՝ առաջին դասարան ընդունվելու միանվագ հրատապ օգնության նշանակման համար', 'Դիմումը չի համապատասխանում ՀՀ կառավարության 09.01.2025 թ. N 27-Ն որոշմամբ սահմանված պայմաններին և պահանջներին', 'Առկա չէ տեղեկատվություն ընտանիքի անչափահաս անդամի՝ հանրակրթական ուսումնական հաստատության առաջին դասարան ընդունվելու մասին', 'Դիմումը մերժվել է հարցմանը չպատասխանելու պատճառով') THEN 1 ELSE 0 END) AS "13-19(9)", 
-    MAX(CASE WHEN "RR"."Name" = 'Դիմումը չի համապատասխանում ՀՀ կառավարության 09.01.2025 թ. N 27-Ն որոշմամբ սահմանված պայմաններին կամ պայմաններին' THEN 1 ELSE 0 END) AS "13-19(13)", 
-
-    COALESCE("HH"."Count_21", 0) AS "21",
-    COALESCE("AI"."PeopleCount", 0) AS "22",
-    COALESCE("HH"."Count_23", 0) AS "23", 
-    COALESCE("HH"."Count_24", 0) AS "24", 
-    COALESCE("HH"."Count_25", 0) AS "25", 
-    COALESCE("HH"."Count_26", 0) AS "26", 
-    COALESCE("HH"."Count_27", 0) AS "27", 
-    COALESCE("HH"."Count_28", 0) AS "28", 
-    COALESCE("HH"."Count_29", 0) AS "29", 
-    COALESCE("HH"."Count_30", 0) AS "30", 
-    COALESCE("Benefit"."DependencyRatio", "Eval"."DependencyRatio") AS "31", 
-    COALESCE("Benefit"."DependencyIndex", "Eval"."DependencyIndex") AS "32", 
-    "FamilyType"."Name" AS "33",
-    COALESCE("Benefit"."AdultEquivalent", "Eval"."AdultEquivalent") AS "34",
-    COALESCE("HH"."Count_35", 0) AS "35", 
-    COALESCE("HH"."Count_36", 0) AS "36", 
-    COALESCE("HH"."Count_37", 0) AS "37", 
-    COALESCE("HH"."Count_38", 0) AS "38", 
-    COALESCE("HH"."Count_39", 0) AS "39", 
-    COALESCE("HH"."Count_40", 0) AS "40", 
-    COALESCE("HH"."Count_41", 0) AS "41", 
-    COALESCE("HH"."Count_42", 0) AS "42", 
-    COALESCE("HH"."Count_43", 0) AS "43", 
-    CASE WHEN "HH"."Count_44" = "HH"."Count_21" THEN 1 ELSE 0 END AS "44", 
-    CASE WHEN "HH"."Count_30" = "HH"."Count_45_Matches" AND "HH"."Count_30" > 0 THEN 1 ELSE 0 END AS "45", 
-    COALESCE("HH"."Count_46", 0) AS "46", 
-    COALESCE("HH"."Count_47", 0) AS "47", 
-    COALESCE("HH"."Total_48", 0) AS "48",
-    COALESCE("HH"."TotalSalarySum", 0) AS "49", 
-    COALESCE("Benefit"."LivestockIncome", "App"."LivestockIncome", 0) + COALESCE("HH"."RealEstateIncomeSum", 0) AS "50",
-    COALESCE("HH"."RealEstateIncomeSum", 0) AS "52",
-
-    COALESCE("LS"."53", 0) AS "53-64(1)", COALESCE("LS"."54", 0) AS "53-64(2)", COALESCE("LS"."55", 0) AS "53-64(3)", 
-    COALESCE("LS"."56", 0) AS "53-64(4)", COALESCE("LS"."57", 0) AS "53-64(5)", COALESCE("LS"."58", 0) AS "53-64(6)", 
-    COALESCE("LS"."60", 0) AS "53-64(8)", COALESCE("LS"."61", 0) AS "53-64(9)", 
-    COALESCE("LS"."63", 0) AS "53-64(11)", COALESCE("LS"."64", 0) AS "53-64(12)", 
-    COALESCE("LS"."65", 0) AS "53-64(13)", COALESCE("LS"."66", 0) AS "53-64(14)", 
-    COALESCE("Benefit"."LivestockIncome", "App"."LivestockIncome", 0) AS "65", 
-
-    COALESCE("HH"."Total_66", 0) AS "66", 
-    COALESCE("HH"."TotalPensionSum", 0) AS "69", 
-    (COALESCE("HH"."Total_70", 0) + COALESCE("Benefit"."LivestockIncome", 0)) AS "70", 
-    ((COALESCE("HH"."Total_70", 0) + COALESCE("Benefit"."LivestockIncome", 0)) - COALESCE(MAX("Benefit"."BenefitAmount"), 0)) / NULLIF(COALESCE("Benefit"."AdultEquivalent", "Eval"."AdultEquivalent"), 0) AS "71", 
-    COALESCE("HH"."Count_72", 0) AS "72",
-
-    COALESCE("HH"."73", 0) AS "73", 
-    COALESCE("HH"."73", 0) / NULLIF(COALESCE("Benefit"."AdultEquivalent", "Eval"."AdultEquivalent", 0), 0) AS "74", 
-
-    -- 75 & 76: part 2 logic
-    (COALESCE("HH"."TotalIncome", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0)) AS "75", 
-    (COALESCE("HH"."TotalIncome", 0) + COALESCE("App"."LivestockIncome", 0) + COALESCE("HH"."73", 0) + COALESCE(MAX("Benefit"."BenefitAmount"), 0)) / NULLIF("Eval"."AdultEquivalent", 0) AS "76", 
-
-    (34581 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0)) AS "77", 
-
-    CASE 
-        WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
-            (35875 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0))
-        WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
-            (34581 - COALESCE("Eval"."AdultEquivalentMonthlyIncome", 0))
+        WHEN app."Status" IN (5, 21) THEN 1 
         ELSE 0 
-    END AS "77_1",
-
-    -- Calculation 100: Guard with R3/S3 presence, then year-based threshold
+    END AS "V06",
     CASE 
-        WHEN ("R3"."ApplicationID" IS NOT NULL OR "S3"."ApplicationID" IS NOT NULL) THEN
+        WHEN app."Status" IN (5, 21) AND b."PayStartDate" IS NOT NULL THEN
+            (EXTRACT(YEAR FROM AGE(COALESCE(b."StopDate", CURRENT_DATE), b."PayStartDate")) * 12) +
+            EXTRACT(MONTH FROM AGE(COALESCE(b."StopDate", CURRENT_DATE), b."PayStartDate"))
+        ELSE NULL
+    END AS "V07",
+    NULL::numeric AS "V08",
+    NULL::numeric AS "V09",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationRejection" ar 
+            WHERE ar."ApplicationID" = laf."TargetAppID" 
+              AND ar."RejectionReasonID" = 1
+        ) THEN 1
+        ELSE 0
+    END AS "V10",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationRejection" ar 
+            WHERE ar."ApplicationID" = laf."TargetAppID" 
+              AND ar."RejectionReasonID" = 5
+        ) THEN 1
+        ELSE 0
+    END AS "V11",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationRejection" ar 
+            WHERE ar."ApplicationID" = laf."TargetAppID" 
+              AND ar."RejectionReasonID" = 6
+        ) THEN 1
+        ELSE 0
+    END AS "V12",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationRejection" ar 
+            WHERE ar."ApplicationID" = laf."TargetAppID" 
+              AND ar."RejectionReasonID" = 7
+        ) THEN 1
+        ELSE 0
+    END AS "V13",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationRejection" ar 
+            WHERE ar."ApplicationID" = laf."TargetAppID" 
+              AND ar."RejectionReasonID" = 3
+        ) THEN 1
+        ELSE 0
+    END AS "V14",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationRejection" ar 
+            WHERE ar."ApplicationID" = laf."TargetAppID" 
+              AND ar."RejectionReasonID" = 8
+        ) THEN 1
+        ELSE 0
+    END AS "V15",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" IS NOT NULL
+        ) THEN 1 
+        ELSE 0 
+    END AS "V16",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationRejection" ar 
+            WHERE ar."ApplicationID" = laf."TargetAppID" 
+              AND ar."RejectionReasonID" = 4
+        ) THEN 1 
+        ELSE 0 
+    END AS "V17",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 1
+        ) THEN 1 
+        ELSE 0 
+    END AS "V18",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 2
+        ) THEN 1 
+        ELSE 0 
+    END AS "V19",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 4
+        ) THEN 1 
+        ELSE 0 
+    END AS "V20",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 5
+        ) THEN 1 
+        ELSE 0 
+    END AS "V21",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 6
+        ) THEN 1 
+        ELSE 0 
+    END AS "V22",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 7
+        ) THEN 1 
+        ELSE 0 
+    END AS "V23",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 8
+        ) THEN 1 
+        ELSE 0 
+    END AS "V24",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 9
+        ) THEN 1 
+        ELSE 0 
+    END AS "V25",
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM "public"."ApplicationStopFactor" asf 
+            WHERE asf."ApplicationID" = laf."TargetAppID" 
+              AND asf."StopFactorID" = 10
+        ) THEN 1 
+        ELSE 0 
+    END AS "V26",
+    (
+        SELECT COUNT(DISTINCT h."SSN")
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V27",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V28",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V29",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 
+                    AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' 
+                    AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V30",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") < 18 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V31",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") >= 63 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V32",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 74 
+                    AND (
+                        COALESCE(bf."HasDisability", h."HasDisability", 'f') = 't' 
+                        OR COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') = 't'
+                    )
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V33",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") >= 75 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V34",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") < 18 
+                     OR (
+                         COALESCE(bf."Age", h."Age") BETWEEN 18 AND 74 
+                         AND (
+                             COALESCE(bf."HasDisability", h."HasDisability", 'f') = 't' 
+                             OR COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') = 't'
+                         )
+                     ) 
+                     OR COALESCE(bf."Age", h."Age") >= 75 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V35",
+COALESCE(b."DependencyRatio", ae."DependencyRatio") AS "V36",
+COALESCE(b."DependencyIndex", ae."DependencyIndex") AS "V37",
+ft."Name" AS "V38",
+COALESCE(b."AdultEquivalent", ae."AdultEquivalent") AS "V39",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."IsStudent", h."IsStudent") = 't' 
+                    AND COALESCE(bf."Age", h."Age") BETWEEN 18 AND 22 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V40",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."IsPregnant", h."IsPregnant") = 't' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V41",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."HasDependentChild", h."HasDependentChild") = 't' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V42",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 14 AND 17 
+                    AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' 
+                    AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V43",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Salary", h."Salary") IS NOT NULL 
+                    AND COALESCE(bf."Salary", h."Salary") != 0 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V44",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN (
+                       COALESCE(bf."Pension", h."Pension", 0) != 0 OR 
+                       COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) != 0 OR 
+                       COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) != 0 OR 
+                       COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) != 0 OR 
+                       COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) != 0 OR 
+                       COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) != 0 OR 
+                       COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0) != 0
+                   )
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V45",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Pension", h."Pension") IS NOT NULL 
+                    AND COALESCE(bf."Pension", h."Pension") != 0 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V46",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 
+                    AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' 
+                    AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' 
+                    AND COALESCE(bf."Salary", h."Salary", 0) > 0 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V47",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 
+                    AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' 
+                    AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' 
+                    AND (COALESCE(bf."Salary", h."Salary", 0) + COALESCE(bf."Pension", h."Pension", 0)) = 0 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V48",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 
+                    AND COALESCE(bf."IsEmployed", h."IsEmployed", 'f') = 'f' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V49",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") BETWEEN 14 AND 17 
+                    AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' 
+                    AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V50",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."Age", h."Age") >= 65 
+                    AND COALESCE(bf."Pension", h."Pension", 0) = 0 
+                    AND COALESCE(bf."IsEmployed", h."IsEmployed", 'f') = 'f' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V51",
+(
+        SELECT COUNT(DISTINCT CASE 
+                   WHEN COALESCE(bf."IsRegisteredInEWork", h."IsRegisteredInEWork", 'f') = 't' 
+                   THEN COALESCE(bf."SSN", h."SSN") 
+               END)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V52",
+(
+        SELECT COALESCE(SUM(
+            -- 1. Բոլոր սոցիալական աջակցությունները
+            COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
+            COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
+            COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
+            COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
+            COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) + 
+            COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0) +
+            
+            -- 2. Կենսաթոշակ
+            COALESCE(bf."Pension", h."Pension", 0) +
+            
+            -- 3. Զինապահ և անշարժ գույքից / այլ տնտեսությունից եկամուտներ
+            COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
+            COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
+            
+            -- 4. Աշխատավարձի հաշվարկման կանոնը (բացառություն դիմելուց հետո ընդունվածների համար)
             CASE 
-                WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
-                    CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - (COALESCE("HH"."73", 0) / NULLIF("Eval"."AdultEquivalent", 0)) >= 35875.00 THEN 1 ELSE 0 END
-                WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
-                    CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - (COALESCE("HH"."73", 0) / NULLIF("Eval"."AdultEquivalent", 0)) >= 34581.00 THEN 1 ELSE 0 END
-                ELSE 0 
+                -- Եթե ընդունվել է աշխատանքի դիմելուց հետո, ընթացիկ աշխատավարձը չի հաշվվում,
+                -- վերցվում է դիմելու պահին նախորդող պատմական աշխատավարձը BenefitFamilyHistory-ից
+                WHEN bf."EmploymentStartDate" > app."DateSubmitted" THEN (
+                    SELECT COALESCE(bfh."Salary", 0)
+                    FROM "public"."BenefitFamilyHistory" bfh
+                    WHERE (bfh."BenefitFamilyID" = bf."ID" OR bfh."SSN" = h."SSN")
+                      AND (
+                          bfh."Year" < EXTRACT(YEAR FROM app."DateSubmitted")
+                          OR (
+                              bfh."Year" = EXTRACT(YEAR FROM app."DateSubmitted") 
+                              AND bfh."Month" <= EXTRACT(MONTH FROM app."DateSubmitted")
+                          )
+                      )
+                    ORDER BY bfh."Year" DESC, bfh."Month" DESC
+                    LIMIT 1
+                )
+                -- Հակառակ դեպքում (սովորական դեպք) հաշվվում է ընթացիկ աշխատավարձը
+                ELSE COALESCE(bf."Salary", h."Salary", 0)
             END
-        ELSE 0 
-    END AS "100",
-
-    CASE 
-        WHEN ("R3"."ApplicationID" IS NOT NULL OR "S3"."ApplicationID" IS NOT NULL) THEN
-            CASE 
-                WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2026 THEN
-                    CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - (COALESCE("HH"."73", 0) / NULLIF("Eval"."AdultEquivalent", 0)) < 35875.00 THEN 1 ELSE 0 END
-                WHEN EXTRACT(YEAR FROM "App"."DateSubmitted") = 2025 THEN
-                    CASE WHEN "Eval"."AdultEquivalentMonthlyIncome" - (COALESCE("HH"."73", 0) / NULLIF("Eval"."AdultEquivalent", 0)) < 34581.00 THEN 1 ELSE 0 END
-                ELSE 0 
-            END
-        ELSE 0 
-    END AS "101",
-
-    -- Rejection & Inspection Logic
-    COALESCE("Rej"."Is_Only_8", 0) AS "102",
-    COALESCE("Rej"."Has_8_And_3", 0) AS "103",
-    CASE WHEN "Eval"."InspectionScore" IS NOT NULL THEN 1 ELSE 0 END AS "104",
-    "Eval"."InspectionScore" AS "105",
-    CASE 
-        WHEN COALESCE("Rej"."Is_Only_8", 0) = 1 AND COALESCE("SF_Check"."Is_Only_9", 0) = 1 
-        THEN 1 ELSE 0 
-    END AS "106",
-    COALESCE("Benefit"."BaseBenefit", 0) AS "107",
-    COALESCE("Benefit"."Supplement", 0) AS "108",
-    (COALESCE("Benefit"."BaseBenefit", 0) + 
-    COALESCE("Benefit"."Supplement", 0)) AS "109",
-    CASE WHEN "HH"."Benefit_BaseBenefit" IS NOT NULL THEN 'Benefit' ELSE 'Application' END AS "Benefit/Applicaiton",
-
-    -- Pivoted Stop Factors
-    MAX(CASE WHEN "SF"."Name" = 'Շարժական գույք' THEN 1 ELSE 0 END) AS "92-99(1)", 
-    MAX(CASE WHEN "SF"."Name" = 'Անշարժ գույք' THEN 1 ELSE 0 END) AS "92-99(2)", 
-    MAX(CASE WHEN "SF"."Name" = 'Հայտարարագրված եկամուտ' THEN 1 ELSE 0 END) AS "92-99(3)", 
-    MAX(CASE WHEN "SF"."Name" = 'Ձեռնարկատիրական գործունեություն' THEN 1 ELSE 0 END) AS "92-99(4)", 
-    MAX(CASE WHEN "SF"."Name" = 'Վարկ' THEN 1 ELSE 0 END) AS "92-99(5)", 
-    MAX(CASE WHEN "SF"."Name" = 'Մաքսային' THEN 1 ELSE 0 END) AS "92-99(6)", 
-    MAX(CASE WHEN "SF"."Name" = 'Էլեկտրաէներգիա' THEN 1 ELSE 0 END) AS "92-99(7)", 
-    MAX(CASE WHEN "SF"."Name" = 'Բնական գազ' THEN 1 ELSE 0 END) AS "92-99(8)", 
-    MAX(CASE WHEN "SF"."Name" = 'Տնայց' THEN 1 ELSE 0 END) AS "92-99(9)", 
-    MAX(CASE WHEN "SF"."Name" = 'Վարկային պայմանագրի երաշխավոր' THEN 1 ELSE 0 END) AS "92-99(10)"
-FROM
-    "Application" AS "App"
-    INNER JOIN LatestAppFilter AS "LAF" ON "App"."ID" = "LAF"."TargetAppID"
-    LEFT JOIN RejectionThreeOnly AS "R3" ON "App"."ID" = "R3"."ApplicationID"
-    LEFT JOIN StopThreeOnly AS "S3" ON "App"."ID" = "S3"."ApplicationID"
-    LEFT JOIN "Community" AS "Comm" ON "App"."CommunityID" = "Comm"."ID"
-    LEFT JOIN "Region" AS "Reg" ON "Comm"."RegionID" = "Reg"."ID"
-    LEFT JOIN "ApplicationStatus" AS "Stat" ON "App"."Status" = "Stat"."ID"
-    LEFT JOIN "ApplicationRejection" AS "AR" ON "App"."ID" = "AR"."ApplicationID"
-    LEFT JOIN "RejectionReason" AS "RR" ON "AR"."RejectionReasonID" = "RR"."ID"
-    LEFT JOIN (
-        SELECT
-            h."ApplicationID", 
-            COUNT(DISTINCT COALESCE(bf."SSN", h."SSN")) AS "TotalMembers", 
-            COUNT(DISTINCT COALESCE(bf."SSN", h."SSN")) AS "Count_21", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_23", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_24", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 AND (COALESCE(bf."HasDisability", h."HasDisability", 'f') = 't' OR COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') = 't') THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_25", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") < 18 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_26", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") >= 63 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_27", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 74 AND (COALESCE(bf."HasDisability", h."HasDisability", 'f') = 't' OR COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') = 't') THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_28", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") >= 75 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_29", 
-            COUNT(DISTINCT CASE WHEN (COALESCE(bf."Age", h."Age") < 18 OR (COALESCE(bf."Age", h."Age") BETWEEN 18 AND 74 AND (COALESCE(bf."HasDisability", h."HasDisability", 'f') = 't' OR COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') = 't')) OR COALESCE(bf."Age", h."Age") >= 75) THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_30", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."IsStudent", h."IsStudent") = 't' AND COALESCE(bf."Age", h."Age") BETWEEN 18 AND 22 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_35", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."IsPregnant", h."IsPregnant") = 't' THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_36", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."HasDependentChild", h."HasDependentChild") = 't' THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_37",
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 14 AND 17 AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_38", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Salary", h."Salary") IS NOT NULL AND COALESCE(bf."Salary", h."Salary") != 0 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_39",
-            COUNT(DISTINCT CASE 
-                WHEN (COALESCE(bf."Pension", h."Pension", 0) != 0 OR 
-                      COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) != 0 OR 
-                      COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) != 0 OR 
-                      COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) != 0 OR 
-                      COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) != 0 OR 
-                      COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) != 0 OR 
-                      COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0) != 0)
-                THEN COALESCE(bf."SSN", h."SSN") 
-            END) AS "Count_40",
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Pension", h."Pension") IS NOT NULL AND COALESCE(bf."Pension", h."Pension") != 0 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_41", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' AND (COALESCE(bf."Salary", h."Salary", 0)) > 0 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_42", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' AND (COALESCE(bf."Salary", h."Salary", 0) + COALESCE(bf."Pension", h."Pension", 0)) = 0 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_43", 
-            COUNT(DISTINCT CASE 
-                WHEN COALESCE(bf."Age", h."Age") BETWEEN 18 AND 62 
-                 AND COALESCE(bf."IsEmployed", h."IsEmployed", 'f') = 'f' 
-                THEN COALESCE(bf."SSN", h."SSN") 
-            END) AS "Count_44",
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") BETWEEN 14 AND 17 AND COALESCE(bf."HasDisability", h."HasDisability", 'f') != 't' AND COALESCE(bf."HasFunctionalLimit", h."HasFunctionalLimit", 'f') != 't' THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_45_Matches", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."Age", h."Age") >= 65 AND COALESCE(bf."Pension", h."Pension", 0) = 0 AND COALESCE(bf."IsEmployed", h."IsEmployed", 'f') = 'f' THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_46", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."IsRegisteredInEWork", h."IsRegisteredInEWork", 'f') = 't' THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_47", 
-            SUM(
-                COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
-                COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
-                COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
-                COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
-                COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) + 
-                COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0)
-            ) AS "Total_66",
-            SUM(
+        ), 0)
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ) AS "V53",
+(
+        COALESCE((
+            SELECT SUM(
                 COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
                 COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
                 COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
@@ -264,145 +616,799 @@ FROM
                 COALESCE(bf."Salary", h."Salary", 0) +
                 COALESCE(bf."Pension", h."Pension", 0) +
                 COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
-                COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0))
-                + COALESCE(MAX(b."BenefitAmount"), 0) AS "Total_70",
-            SUM(
+                COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)
+            )
+            FROM "public"."Household" h
+            LEFT JOIN "public"."Benefit" ben 
+                ON h."ApplicationID" = ben."ApplicationID"
+            LEFT JOIN "public"."BenefitFamily" bf 
+                ON ben."ID" = bf."BenefitID" 
+               AND h."SSN" = bf."SSN"
+            WHERE h."ApplicationID" = laf."TargetAppID"
+              AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+        ), 0) 
+        + COALESCE(b."BenefitAmount", 0)
+    ) AS "V54",
+(
+        COALESCE(b."LivestockIncome", app."LivestockIncome", 0) +
+        COALESCE((
+            SELECT SUM(COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0))
+            FROM "public"."Household" h
+            LEFT JOIN "public"."Benefit" ben 
+                ON h."ApplicationID" = ben."ApplicationID"
+            LEFT JOIN "public"."BenefitFamily" bf 
+                ON ben."ID" = bf."BenefitID" 
+               AND h."SSN" = bf."SSN"
+            WHERE h."ApplicationID" = laf."TargetAppID"
+              AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+        ), 0)
+    ) AS "V55",
+    -- V56. Ընտանիքի բոլոր անդամների գյուղատնտեսական հողի ընդհանուր մակերեսը (հա), 0՝ եթե գ/տ հող չունեն.
+    -- Հաշվվում են միայն հարկվող (amount > 0) հողակտորները՝ ըստ personRealityData-ի (ըստ մասնաբաժնի՝ partSize):
+    COALESCE((
+        SELECT ROUND(SUM(COALESCE((p ->> 'partSize')::numeric, (p ->> 'area')::numeric)), 2)
+        FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(sfr."Content" -> 'data') = 'array' 
+                      THEN sfr."Content" -> 'data' ELSE '[]'::jsonb END) AS d
+        CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(d -> 'personRealityData') = 'array' 
+                      THEN d -> 'personRealityData' ELSE '[]'::jsonb END) AS pr
+        CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(pr -> 'parcells') = 'array' 
+                      THEN pr -> 'parcells' ELSE '[]'::jsonb END) AS p
+        WHERE COALESCE((p ->> 'amount')::numeric, 0) > 0
+    ), 0) AS "V56",
+    -- V57. Ընտանիքի բոլոր անդամների գյուղատնտեսական հողի կադաստրային զուտ գումարային ամսական եկամուտը (դրամ).
+    -- MTA պատասխանի incomeAmount դաշտը հենց այդ ամսական կադաստրային զուտ եկամուտն է, ուստի գումարվում է ուղիղ:
+    COALESCE((
+        SELECT ROUND(SUM(COALESCE((d ->> 'incomeAmount')::numeric, 0)), 2)
+        FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(sfr."Content" -> 'data') = 'array' 
+                      THEN sfr."Content" -> 'data' ELSE '[]'::jsonb END) AS d
+    ), 0) AS "V57",
+COALESCE(b."LivestockIncome", app."LivestockIncome", 0) AS "V58",
+(
+    SELECT COALESCE(SUM(
+        COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
+        COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
+        COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
+        COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
+        COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) + 
+        COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0)
+    ), 0)
+    FROM "public"."Household" h
+    LEFT JOIN "public"."Benefit" ben 
+        ON h."ApplicationID" = ben."ApplicationID"
+    LEFT JOIN "public"."BenefitFamily" bf 
+        ON ben."ID" = bf."BenefitID" 
+       AND h."SSN" = bf."SSN"
+    WHERE h."ApplicationID" = laf."TargetAppID"
+      AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+) AS "V59",
+    NULL::numeric AS "V60",
+    NULL::numeric AS "V61",
+(
+    SELECT COALESCE(SUM(
+        COALESCE(bf."Pension", h."Pension", 0)
+    ), 0)
+    FROM "public"."Household" h
+    LEFT JOIN "public"."Benefit" ben 
+        ON h."ApplicationID" = ben."ApplicationID"
+    LEFT JOIN "public"."BenefitFamily" bf 
+        ON ben."ID" = bf."BenefitID" 
+       AND h."SSN" = bf."SSN"
+    WHERE h."ApplicationID" = laf."TargetAppID"
+      AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+) AS "V62",
+(
+    (
+        COALESCE((
+            SELECT SUM(
                 COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
                 COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
                 COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
                 COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
                 COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) + 
                 COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0) +
-                COALESCE(bf."Pension", h."Pension", 0) +
                 COALESCE(bf."Salary", h."Salary", 0) +
+                COALESCE(bf."Pension", h."Pension", 0) +
                 COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
+                COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)
+            )
+            FROM "public"."Household" h
+            LEFT JOIN "public"."Benefit" ben 
+                ON h."ApplicationID" = ben."ApplicationID"
+            LEFT JOIN "public"."BenefitFamily" bf 
+                ON ben."ID" = bf."BenefitID" 
+               AND h."SSN" = bf."SSN"
+            WHERE h."ApplicationID" = laf."TargetAppID"
+              AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+        ), 0)
+        + COALESCE(b."LivestockIncome", app."LivestockIncome", 0)
+    )
+    / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent"), 0)
+) AS "V63",
+(
+    SELECT COUNT(DISTINCT CASE 
+               WHEN COALESCE(bf."AssignedSum", h."AssignedSum") IS NOT NULL 
+                AND COALESCE(bf."AssignedSum", h."AssignedSum") != 0 
+               THEN COALESCE(bf."SSN", h."SSN") 
+           END)
+    FROM "public"."Household" h
+    LEFT JOIN "public"."Benefit" ben 
+        ON h."ApplicationID" = ben."ApplicationID"
+    LEFT JOIN "public"."BenefitFamily" bf 
+        ON ben."ID" = bf."BenefitID" 
+       AND h."SSN" = bf."SSN"
+    WHERE h."ApplicationID" = laf."TargetAppID"
+      AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+) AS "V64",
+(
+    SELECT COALESCE(SUM(
+        COALESCE(bf."AssignedSum", h."AssignedSum", 0) + 
+        COALESCE(bf."AdditionalAssignment", 0)
+    ), 0)
+    FROM "public"."Household" h
+    LEFT JOIN "public"."Benefit" ben 
+        ON h."ApplicationID" = ben."ApplicationID"
+    LEFT JOIN "public"."BenefitFamily" bf 
+        ON ben."ID" = bf."BenefitID" 
+       AND h."SSN" = bf."SSN"
+    WHERE h."ApplicationID" = laf."TargetAppID"
+      AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+) AS "V65",
+(
+    COALESCE((
+        SELECT SUM(
+            COALESCE(bf."AssignedSum", h."AssignedSum", 0) + 
+            COALESCE(bf."AdditionalAssignment", 0)
+        )
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ), 0)
+    / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent", 0), 0)
+) AS "V66",
+(
+    COALESCE((
+        SELECT SUM(
+            -- HH_Income_Subtotal
+            COALESCE(bf."Salary", h."Salary", 0) + 
+            COALESCE(bf."Pension", h."Pension", 0) + 
+            COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + 
+            COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + 
+            COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + 
+            COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
+            COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + 
+            COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
+            COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
+            -- 73 (AssignedSum + AdditionalAssignment)
+            COALESCE(bf."AssignedSum", h."AssignedSum", 0) + 
+            COALESCE(bf."AdditionalAssignment", 0)
+        )
+        FROM "public"."Household" h
+        LEFT JOIN "public"."Benefit" ben 
+            ON h."ApplicationID" = ben."ApplicationID"
+        LEFT JOIN "public"."BenefitFamily" bf 
+            ON ben."ID" = bf."BenefitID" 
+           AND h."SSN" = bf."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ), 0)
+    + COALESCE(b."LivestockIncome", app."LivestockIncome", 0)
+) AS "V67",
+(
+    (
+        COALESCE((
+            SELECT SUM(
+                -- HH_Income_Subtotal
+                COALESCE(bf."Salary", h."Salary", 0) + 
+                COALESCE(bf."Pension", h."Pension", 0) + 
+                COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + 
+                COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + 
+                COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + 
+                COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
+                COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + 
+                COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
                 COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
-                CASE 
-                    WHEN bf."EmploymentStartDate" > a."DateSubmitted" THEN COALESCE("BFH"."HistorySalary", 0)
-                    ELSE 0
-                END
-            ) AS "Total_48",
-            SUM(COALESCE(bf."Salary", h."Salary", 0) + COALESCE(bf."Pension", h."Pension", 0) + COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)) AS "TotalIncome", 
-            SUM(COALESCE(bf."Salary", h."Salary", 0)) AS "TotalSalarySum", 
-            SUM(COALESCE(bf."Pension", h."Pension", 0)) AS "TotalPensionSum", 
-            SUM(COALESCE(h."AssignedSum", 0)) AS "TotalAssignedSum", 
-            COUNT(DISTINCT CASE WHEN COALESCE(bf."AssignedSum", h."AssignedSum") IS NOT NULL AND COALESCE(bf."AssignedSum", h."AssignedSum") != 0 THEN COALESCE(bf."SSN", h."SSN") END) AS "Count_72", 
-            SUM(COALESCE(bf."AssignedSum", h."AssignedSum", 0) + COALESCE(bf."AdditionalAssignment", 0)) AS "73", 
-            SUM(COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0)) AS "RealEstateIncomeSum", 
-            MIN(CASE WHEN COALESCE(bf."AssignedSum", h."AssignedSum", 0) > 0 THEN 1 ELSE 0 END) AS "AllMembersHaveSum",
-            MAX(b."BaseBenefit") AS "Benefit_BaseBenefit",
-            MAX(b."Supplement") AS "Benefit_Supplement"
-        FROM "Household" AS h
-        LEFT JOIN "Application" AS a ON h."ApplicationID" = a."ID"
-        LEFT JOIN "Benefit" AS b ON h."ApplicationID" = b."ApplicationID"
-        LEFT JOIN "BenefitFamily" AS bf ON b."ID" = bf."BenefitID" AND h."SSN" = bf."SSN"
-        LEFT JOIN (
-            SELECT 
-                bfSalary."BenefitID",
-                SUM(bfSalary."HistorySalary") AS "HistorySalary"
-            FROM (
-                SELECT 
-                    bf."BenefitID",
-                    bf."ID",
-                    SUM(COALESCE(bfh."Salary", 0)) AS "HistorySalary"
-                FROM "BenefitFamily" bf
-                LEFT JOIN "BenefitFamilyHistory" bfh 
-                    ON bfh."BenefitFamilyID" = bf."ID"
-                    AND (bfh."Year" * 12 + bfh."Month") >= 
-                        (EXTRACT(YEAR FROM bf."EmploymentStartDate") * 12 + EXTRACT(MONTH FROM bf."EmploymentStartDate"))
-                    AND (bfh."Year" * 12 + bfh."Month") < 
-                        (EXTRACT(YEAR FROM bf."EmploymentStartDate") * 12 + EXTRACT(MONTH FROM bf."EmploymentStartDate") + 12)
-                GROUP BY bf."BenefitID", bf."ID"
-            ) AS bfSalary
-            GROUP BY bfSalary."BenefitID"
-        ) AS "BFH" ON b."ID" = "BFH"."BenefitID"
-        WHERE COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
-        GROUP BY h."ApplicationID"
-    ) AS "HH" ON "App"."ID" = "HH"."ApplicationID"
-    LEFT JOIN (
-        SELECT
-            "AL"."ApplicationID", 
-            SUM(CASE WHEN "LT"."Name" = 'Կով' THEN "AL"."Count" ELSE 0 END) AS "53",
-            SUM(CASE WHEN "LT"."Name" = 'Այլ սեռահասակային խմբերի տավար' THEN "AL"."Count" ELSE 0 END) AS "54", 
-            SUM(CASE WHEN "LT"."Name" = 'Գոմշամատակ' THEN "AL"."Count" ELSE 0 END) AS "55",
-            SUM(CASE WHEN "LT"."Name" = 'Խոզամայր (խոճկորներով)' THEN "AL"."Count" ELSE 0 END) AS "56", 
-            SUM(CASE WHEN "LT"."Name" = 'Այլ սեռահասակային խմբերի խոզեր' THEN "AL"."Count" ELSE 0 END) AS "57",
-            SUM(CASE WHEN "LT"."Name" in ('Ոչխար', 'Այծ') THEN "AL"."Count" ELSE 0 END) AS "58", 
-            SUM(CASE WHEN "LT"."Name" = 'Հավ' THEN "AL"."Count" ELSE 0 END) AS "60", 
-            SUM(CASE WHEN "LT"."Name" in ('Բադ','Սագ') THEN "AL"."Count" ELSE 0 END) AS "61", 
-            SUM(CASE WHEN "LT"."Name" = 'Ջայլամ' THEN "AL"."Count" ELSE 0 END) AS "63",
-            SUM(CASE WHEN "LT"."Name" = 'Հնդկահավ' THEN "AL"."Count" ELSE 0 END) AS "64", 
-            SUM(CASE WHEN "LT"."Name" = 'Մեղվաընտանիք' THEN "AL"."Count" ELSE 0 END) AS "65",
-            SUM(CASE WHEN "LT"."Name" = 'Ճագար' THEN "AL"."Count" ELSE 0 END) AS "66"
-        FROM "ApplicationLivestock" AS "AL"
-        JOIN "LivestockType" AS "LT" ON "AL"."LivestockTypeID" = "LT"."ID"
-        GROUP BY "AL"."ApplicationID"
-    ) AS "LS" ON "App"."ID" = "LS"."ApplicationID"
-    LEFT JOIN (
-        SELECT 
-            "ApplicationID",
-            CASE WHEN COUNT(*) > 0 AND MAX(CASE WHEN "RejectionReasonID" = 8 THEN 1 ELSE 0 END) = 1 AND MAX(CASE WHEN "RejectionReasonID" <> 8 THEN 1 ELSE 0 END) = 0 THEN 1 ELSE 0 END AS "Is_Only_8",
-            CASE WHEN MAX(CASE WHEN "RejectionReasonID" = 8 THEN 1 ELSE 0 END) = 1 AND MAX(CASE WHEN "RejectionReasonID" = 3 THEN 1 ELSE 0 END) = 1 THEN 1 ELSE 0 END AS "Has_8_And_3"
-        FROM "ApplicationRejection"
-        GROUP BY "ApplicationID"
-    ) AS "Rej" ON "App"."ID" = "Rej"."ApplicationID"
-    LEFT JOIN (
-        SELECT 
-            "ApplicationID",
-            CASE WHEN COUNT(*) > 0 AND MAX(CASE WHEN "StopFactorID" = 9 THEN 1 ELSE 0 END) = 1 AND MAX(CASE WHEN "StopFactorID" <> 9 THEN 1 ELSE 0 END) = 0 THEN 1 ELSE 0 END AS "Is_Only_9"
-        FROM "ApplicationStopFactor"
-        GROUP BY "ApplicationID"
-    ) AS "SF_Check" ON "App"."ID" = "SF_Check"."ApplicationID"
-    LEFT JOIN "ApplicationEvaluation" AS "Eval" ON "App"."ID" = "Eval"."ApplicationID"
-    LEFT JOIN "ApplicationStopFactor" AS "ASF" ON "App"."ID" = "ASF"."ApplicationID"
-    LEFT JOIN "StopFactor" AS "SF" ON "ASF"."StopFactorID" = "SF"."ID"
-    LEFT JOIN "Benefit" ON "App"."ID" = "Benefit"."ApplicationID"
-    LEFT JOIN (
-        SELECT distinct
-            "ApplicationID",
-            "PeopleCount" AS "PeopleCount"
-        FROM "ApplicationInspection"
-    ) AS "AI" ON "App"."ID" = "AI"."ApplicationID"
-    LEFT JOIN "BenefitFamily" AS "BF_MAIN" ON "Benefit"."ID" = "BF_MAIN"."BenefitID"
-    LEFT JOIN "FamilyType" ON "FamilyType"."ID" = COALESCE("Benefit"."FamilyTypeID", "Eval"."FamilyTypeID")
-WHERE "LAF"."rn" = 1 
-GROUP BY
-    "App"."ID", "App"."Num", "App"."DateSubmitted",
-    "App"."Content" -> 'CitizenData' -> 'ActualAddress' ->> 'Region', 
-    "App"."Content" -> 'CitizenData' -> 'ActualAddress' ->> 'Community', 
-    "App"."Status", 
-    "App"."LivestockIncome",
-    "Benefit"."BenefitStatusID", 
-    "Benefit"."OrderDate", 
-    "Benefit"."StopDate",
-    "Benefit"."DependencyRatio",
-    "Benefit"."DependencyIndex", 
-    "Benefit"."AdultEquivalent", 
-    "Benefit"."LivestockIncome",
-    "Benefit"."BaseBenefit",
-    "Benefit"."Supplement",
-    "LAF"."Total_Applications",
-    "LAF"."FirstSubmissionDate",
-    "R3"."ApplicationID",
-    "S3"."ApplicationID",
-    "Rej"."Is_Only_8", 
-    "Rej"."Has_8_And_3",
-    "SF_Check"."Is_Only_9",
-    "Eval"."DependencyRatio", 
-    "Eval"."DependencyIndex", 
-    "Eval"."AdultEquivalent", 
-    "Eval"."AdultEquivalentMonthlyIncome",
-    "Eval"."LivestockIncome",
-    "Eval"."InspectionScore",
-    "Eval"."BaseBenefit",
-    "Eval"."Supplement",
-    "FamilyType"."Name",
-    "AI"."PeopleCount",
-    "HH"."Count_21", "HH"."Count_23", "HH"."Count_24", "HH"."Count_25", "HH"."Count_26", "HH"."Count_27", "HH"."Count_28", "HH"."Count_29", "HH"."Count_30", 
-    "HH"."Count_35", "HH"."Count_36", "HH"."Count_37", "HH"."Count_38", "HH"."Count_39", "HH"."Count_40", "HH"."Count_41", "HH"."Count_42", "HH"."Count_43", "HH"."Count_44", 
-    "HH"."TotalMembers", "HH"."Count_45_Matches", "HH"."Count_46", "HH"."Count_47", 
-    "HH"."Total_48", "HH"."Total_66", "HH"."Total_70", "HH"."73", 
-    "HH"."TotalSalarySum", "HH"."TotalPensionSum", "HH"."TotalAssignedSum", 
-    "HH"."Count_72", "HH"."RealEstateIncomeSum", "HH"."TotalIncome",
-    "HH"."Benefit_BaseBenefit", "HH"."Benefit_Supplement",
-    "LS"."53", "LS"."54", "LS"."55", "LS"."56", "LS"."57", "LS"."58", "LS"."60", "LS"."61", "LS"."63", "LS"."64", "LS"."65", "LS"."66";
+                -- 73 (AssignedSum + AdditionalAssignment)
+                COALESCE(bf."AssignedSum", h."AssignedSum", 0) + 
+                COALESCE(bf."AdditionalAssignment", 0)
+            )
+            FROM "public"."Household" h
+            LEFT JOIN "public"."Benefit" ben 
+                ON h."ApplicationID" = ben."ApplicationID"
+            LEFT JOIN "public"."BenefitFamily" bf 
+                ON ben."ID" = bf."BenefitID" 
+               AND h."SSN" = bf."SSN"
+            WHERE h."ApplicationID" = laf."TargetAppID"
+              AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+        ), 0)
+        + COALESCE(b."LivestockIncome", app."LivestockIncome", 0)
+        + COALESCE(b."BenefitAmount", 0)
+    )
+    / NULLIF(ae."AdultEquivalent", 0)
+) AS "V68",
+(
+    CASE 
+        WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2025 THEN 34581
+        WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2026 THEN 35875
+        ELSE 35875 -- or default threshold if outside 2025/2026
+    END - COALESCE(ae."AdultEquivalentMonthlyIncome", 0)
+) AS "V69",
+CASE 
+    WHEN (
+        (
+            COALESCE((
+                SELECT SUM(
+                    -- HH_Income_Subtotal
+                    COALESCE(bf."Salary", h."Salary", 0) + 
+                    COALESCE(bf."Pension", h."Pension", 0) + 
+                    COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + 
+                    COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + 
+                    COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + 
+                    COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
+                    COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + 
+                    COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
+                    COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
+                    -- 73 (AssignedSum + AdditionalAssignment)
+                    COALESCE(bf."AssignedSum", h."AssignedSum", 0) + 
+                    COALESCE(bf."AdditionalAssignment", 0)
+                )
+                FROM "public"."Household" h
+                LEFT JOIN "public"."Benefit" ben 
+                    ON h."ApplicationID" = ben."ApplicationID"
+                LEFT JOIN "public"."BenefitFamily" bf 
+                    ON ben."ID" = bf."BenefitID" 
+                   AND h."SSN" = bf."SSN"
+                WHERE h."ApplicationID" = laf."TargetAppID"
+                  AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+            ), 0)
+            + COALESCE(b."LivestockIncome", app."LivestockIncome", 0)
+            + COALESCE(b."BenefitAmount", 0)
+        )
+        / NULLIF(ae."AdultEquivalent", 0)
+    ) > (
+        CASE 
+            WHEN EXTRACT(YEAR FROM app."DateCreated") = 2025 THEN 34581
+            WHEN EXTRACT(YEAR FROM app."DateCreated") = 2026 THEN 35875
+            ELSE 35875
+        END * 1.30
+    ) THEN 1
+    ELSE 0
+END AS "V70",
+CASE 
+    WHEN (
+        (
+            COALESCE((
+                SELECT SUM(
+                    -- HH_Income_Subtotal
+                    COALESCE(bf."Salary", h."Salary", 0) + 
+                    COALESCE(bf."Pension", h."Pension", 0) + 
+                    COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) + 
+                    COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) + 
+                    COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) + 
+                    COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) + 
+                    COALESCE(bf."OrphanSupportAmount", h."OrphanSupportAmount", 0) + 
+                    COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) + 
+                    COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
+                    -- 73 (AssignedSum + AdditionalAssignment)
+                    COALESCE(bf."AssignedSum", h."AssignedSum", 0) + 
+                    COALESCE(bf."AdditionalAssignment", 0)
+                )
+                FROM "public"."Household" h
+                LEFT JOIN "public"."Benefit" ben 
+                    ON h."ApplicationID" = ben."ApplicationID"
+                LEFT JOIN "public"."BenefitFamily" bf 
+                    ON ben."ID" = bf."BenefitID" 
+                   AND h."SSN" = bf."SSN"
+                WHERE h."ApplicationID" = laf."TargetAppID"
+                  AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+            ), 0)
+            + COALESCE(b."LivestockIncome", app."LivestockIncome", 0)
+            + COALESCE(b."BenefitAmount", 0)
+        )
+        / NULLIF(ae."AdultEquivalent", 0)
+    ) > (
+        CASE 
+            WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2025 THEN 34581
+            WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2026 THEN 35875
+            ELSE 35875
+        END * 1.60
+    ) THEN 1
+    ELSE 0
+END AS "V71",
+    -- V72. Ընտանիքի՝ 2015 թվականից սկսած (ներառյալ) արտադրված ավտոտրանսպորտային միջոցների քանակը (ըստ StopFactorID = 1 պատասխանի).
+    COALESCE((
+        SELECT COUNT(*)
+        FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(sfr1."Content" -> 'data' -> 'personsList') = 'array' 
+                      THEN sfr1."Content" -> 'data' -> 'personsList' ELSE '[]'::jsonb END) AS pl
+        CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(pl -> 'movablePropertyData') = 'array' 
+                      THEN pl -> 'movablePropertyData' ELSE '[]'::jsonb END) AS mp
+        WHERE CASE WHEN mp ->> 'released' ~ '^[0-9]{4}$' 
+                   THEN (mp ->> 'released')::int ELSE 0 END >= 2015
+    ), 0) AS "V72",
+    -- V73. Ընտանիքի ավտոտրանսպորտային միջոցների գումարային գույքահարկը (դրամ)՝ 12000 շեմի հետ համեմատվող գումարը.
+    -- Չի զտվում ըստ արտադրության տարվա. >12000 գումարը հենց բացառող գործոնի չափանիշն է, հետևաբար գումարվում են բոլոր միջոցները։
+    COALESCE((
+        SELECT ROUND(SUM(COALESCE((mp -> 'tkenResponse' ->> 'amount')::numeric, 0)), 2)
+        FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(sfr1."Content" -> 'data' -> 'personsList') = 'array' 
+                      THEN sfr1."Content" -> 'data' -> 'personsList' ELSE '[]'::jsonb END) AS pl
+        CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(pl -> 'movablePropertyData') = 'array' 
+                      THEN pl -> 'movablePropertyData' ELSE '[]'::jsonb END) AS mp
+        WHERE CASE WHEN mp ->> 'released' ~ '^[0-9]{4}$' 
+                   THEN (mp ->> 'released')::int ELSE 0 END >= 2015
+    ), 0) AS "V73",
+    -- V74. Արդյո՞ք ընտանիքի ավտոտրանսպորտային միջոցների գումարային գույքահարկը գերազանցում է 12000 դրամի սահմանաչափը (MovableTaxCap), 1-այո, 0-ոչ։
+    CASE 
+        WHEN COALESCE((
+            SELECT SUM(COALESCE((mp -> 'tkenResponse' ->> 'amount')::numeric, 0))
+            FROM jsonb_array_elements(
+                     CASE WHEN jsonb_typeof(sfr1."Content" -> 'data' -> 'personsList') = 'array' 
+                          THEN sfr1."Content" -> 'data' -> 'personsList' ELSE '[]'::jsonb END) AS pl
+            CROSS JOIN LATERAL jsonb_array_elements(
+                     CASE WHEN jsonb_typeof(pl -> 'movablePropertyData') = 'array' 
+                          THEN pl -> 'movablePropertyData' ELSE '[]'::jsonb END) AS mp
+            WHERE CASE WHEN mp ->> 'released' ~ '^[0-9]{4}$' 
+                       THEN (mp ->> 'released')::int ELSE 0 END >= 2015
+        ), 0) > 12000 THEN 1 
+        ELSE 0 
+    END AS "V74",
+    -- V75. Դիմելու օրվա դրությամբ ընտանիքի անդամներին պատկանող անշարժ գույքերի քանակը։
+    -- Յուրաքանչյուր unitId հաշվվում է մեկ անգամ, եթե rights[].subjects[].ssn-ում կա Household-ի SSN,
+    -- և այդ սեփականության իրավունքը չի դադարել մինչև Application.DateSubmitted-ը։
+    COALESCE((
+        SELECT COUNT(DISTINCT u ->> 'unitId')
+        FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(sfr."Content" -> 'data') = 'array' 
+                      THEN sfr."Content" -> 'data' ELSE '[]'::jsonb END) AS d
+        CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(d -> 'originalCadastreData') = 'array' 
+                      THEN d -> 'originalCadastreData' ELSE '[]'::jsonb END) AS u
+        WHERE NULLIF(u ->> 'unitId', '') IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(
+                       CASE WHEN jsonb_typeof(u -> 'rights') = 'array' 
+                            THEN u -> 'rights' ELSE '[]'::jsonb END) AS r
+              CROSS JOIN LATERAL jsonb_array_elements(
+                       CASE WHEN jsonb_typeof(r -> 'subjects') = 'array' 
+                            THEN r -> 'subjects' ELSE '[]'::jsonb END) AS subject
+              INNER JOIN "public"."Household" AS h
+                  ON h."ApplicationID" = laf."TargetAppID"
+                 AND h."SSN" = subject ->> 'ssn'
+              WHERE (r ->> 'rightType') LIKE '%ՍԵՓԱԿԱՆՈՒԹՅՈՒՆ%'
+                AND (
+                    NULLIF(r ->> 'rightTermDate', '') IS NULL
+                    OR (
+                        r ->> 'rightTermDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                        AND app."DateSubmitted" IS NOT NULL
+                        AND (r ->> 'rightTermDate')::date > app."DateSubmitted"::date
+                    )
+                )
+          )
+    ), 0) AS "V75",
+    -- V76. Ընտանիքի անշարժ գույքերի ընդհանուր գույքահարկը (դրամ)՝ MTA պատասխանի ընտանիքի ընդհանուր totalAmount դաշտից։
+    COALESCE(NULLIF(sfr."Content" ->> 'totalAmount', '')::numeric, 0) AS "V76",
+    -- V77. Գույքահարկի շեմի գերազանցում՝ Երևան 18750 դրամ, այլ մարզեր 6560 դրամ։
+    CASE
+        WHEN COALESCE(NULLIF(sfr."Content" ->> 'totalAmount', '')::numeric, 0) >
+             CASE
+                 WHEN app."Content" -> 'CitizenData' -> 'ActualAddress' ->> 'Region' = 'Երևան' THEN 18750
+                 ELSE 6560
+             END
+        THEN 1
+        ELSE 0
+    END AS "V77",
+    -- V78. Ընտանիքում ձեռնարկատիրական գործունեությամբ զբաղված անդամի կամ ընտանիքի անդամ չհանդիսացող վարձու աշխատող ունեցող ԱՁ-ի առկայություն։
+    CASE
+        WHEN COALESCE(
+            NULLIF(sfb4."Content" -> 'data' ->> 'isStopFactor', '')::boolean,
+            FALSE
+        ) THEN 1
+        ELSE 0
+    END AS "V78",
+    -- V79. Ձեռնարկատիրական գործունեությամբ զբաղված ընտանիքի անդամների քանակը՝ Factor 4 personsList SSN-ները համադրելով Household-ի հետ։
+    COALESCE((
+        SELECT COUNT(DISTINCT person ->> 'ssn')
+        FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(sfb4."Content" -> 'data' -> 'personsList') = 'array'
+                      THEN sfb4."Content" -> 'data' -> 'personsList' ELSE '[]'::jsonb END) AS person
+        INNER JOIN "public"."Household" AS household_member
+            ON household_member."ApplicationID" = laf."TargetAppID"
+           AND household_member."SSN" = person ->> 'ssn'
+        WHERE sfb4."Content" -> 'data' ->> 'isStopFactor' = 'true'
+          AND NULLIF(person ->> 'ssn', '') IS NOT NULL
+    ), 0) AS "V79",
+    -- V80. Ընտանիքի՝ ապրանքների ներմուծման կամ արտահանման համար գումարային մաքսային վճարը (դրամ)՝ BenefitStopFactorID 6-ի data.totalAmount-ից։
+    COALESCE(NULLIF(sfc6."Content" -> 'data' ->> 'totalAmount', '')::numeric, 0) AS "V80",
+    -- V81. Ընտանիքի ընդհանուր մաքսային վճարը՝ ընտանիքի մեկ հաշվարկային անդամի հաշվով։
+    COALESCE(NULLIF(sfc6."Content" -> 'data' ->> 'totalAmount', '')::numeric, 0)
+        / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent"), 0) AS "V81",
+    -- V82. Արդյո՞ք մեկ հաշվարկային անդամի հաշվով մաքսային վճարը գերազանցում է տարվա սահմանաչափը։
+    CASE
+        WHEN COALESCE(NULLIF(sfc6."Content" -> 'data' ->> 'totalAmount', '')::numeric, 0)
+             / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent"), 0)
+             > CASE
+                   WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2025 THEN 34581
+                   WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2026 THEN 35875
+                   ELSE 35875
+               END
+        THEN 1
+        ELSE 0
+    END AS "V82",
+    -- V83. Ընտանիքի՝ էլեկտրաէներգիայի ամսական միջին սպառումը ամռան ամիսներին (կՎտ/ժամ). աղբյուրում տվյալ չկա։
+    NULL::numeric AS "V83",
+    NULL::numeric AS "V84",
+    NULL::numeric AS "V85",
+    NULL::numeric AS "V86",
+    NULL::numeric AS "V87",
+    NULL::numeric AS "V88",
+    -- V89. Ընտանիքի ամսական վարկային մարումների գումարը՝ մեկ հաշվարկային անդամի հաշվով։
+    COALESCE((
+        SELECT SUM(COALESCE(bf."LoanRepaymentAmount", h."LoanRepaymentAmount", 0))
+        FROM "public"."Household" AS h
+        LEFT JOIN "public"."BenefitFamily" AS bf
+            ON bf."BenefitID" = b."ID"
+           AND bf."SSN" = h."SSN"
+        WHERE h."ApplicationID" = laf."TargetAppID"
+          AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+    ), 0)
+    / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent"), 0) AS "V89",
+    -- V90. Ընտանիքի մեկ հաշվարկային անդամի հաշվով վարկի շեմի գերազանցման պաշտոնական StopFactorID 5 դրոշը։
+    CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM "public"."ApplicationStopFactor" AS app_sf
+            WHERE app_sf."ApplicationID" = laf."TargetAppID"
+              AND app_sf."StopFactorID" = 5
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM "public"."BenefitStopFactor" AS benefit_sf
+            WHERE benefit_sf."BenefitID" = b."ID"
+              AND benefit_sf."StopFactorID" = 5
+        )
+        THEN 1
+        ELSE 0
+    END AS "V90",
+    -- V91. Ընտանիքի անդամների երաշխավորության պայմանագրերի ընդհանուր գումարը (դրամ)՝ AMD երաշխիքների guaranteeAmountAMD գումարը։
+    COALESCE((
+        SELECT SUM(COALESCE((guarantee ->> 'guaranteeAmountAMD')::numeric, 0))
+        FROM jsonb_each(
+                 CASE WHEN jsonb_typeof(sfg10."Content") = 'object'
+                      THEN sfg10."Content" ELSE '{}'::jsonb END) AS person_response(key, value)
+        CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(person_response.value -> 'data' -> 'guarateeList') = 'array'
+                      THEN person_response.value -> 'data' -> 'guarateeList' ELSE '[]'::jsonb END) AS guarantee
+    ), 0) AS "V91",
+    -- V92. Գոնե մեկ երաշխավորության պայմանագրի գումարը գերազանցո՞ւմ է 100000 դրամը (LoanGuarantorCap)։
+    CASE WHEN EXISTS (
+        SELECT 1
+        FROM jsonb_each(
+                 CASE WHEN jsonb_typeof(sfg10."Content") = 'object'
+                      THEN sfg10."Content" ELSE '{}'::jsonb END) AS person_response(key, value)
+        CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(person_response.value -> 'data' -> 'guarateeList') = 'array'
+                      THEN person_response.value -> 'data' -> 'guarateeList' ELSE '[]'::jsonb END) AS guarantee
+        WHERE COALESCE((guarantee ->> 'guaranteeAmountAMD')::numeric, 0) > 100000
+    ) THEN 1 ELSE 0 END AS "V92",
+    -- V93. Ընտանիքի կեցության պայմանների/տունայցի ուսումնասիրություն իրականացվել է՝ ApplicationInspection գրառումի առկայությամբ։
+    CASE WHEN EXISTS (
+        SELECT 1
+        FROM "public"."ApplicationInspection" AS inspection
+        WHERE inspection."ApplicationID" = laf."TargetAppID"
+    ) THEN 1 ELSE 0 END AS "V93",
+    -- V94. Ընտանիքի կեցության պայմանների/տունայցի հաշվարկված միավորը։
+    (
+        SELECT inspection."Score"
+        FROM "public"."ApplicationInspection" AS inspection
+        WHERE inspection."ApplicationID" = laf."TargetAppID"
+    ) AS "V94",
+    -- V95. Մերժվել է միայն փաստագրված եկամուտը մեկ հաշվարկային անդամի հաշվով ՆՊԶ շեմը գերազանցելու պատճառով։
+    CASE
+        WHEN app."Status" = 30
+         AND EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationRejection" AS income_rejection
+             WHERE income_rejection."ApplicationID" = laf."TargetAppID"
+               AND income_rejection."RejectionReasonID" = 3
+         )
+         AND NOT EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationRejection" AS other_rejection
+             WHERE other_rejection."ApplicationID" = laf."TargetAppID"
+               AND other_rejection."RejectionReasonID" <> 3
+         )
+         AND COALESCE(b."AdultEquivalent", ae."AdultEquivalent") > 0
+         AND v96_income.documented_total / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent"), 0) >
+             CASE
+                 WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2025 THEN 34581
+                 WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2026 THEN 35875
+                 ELSE 35875
+             END
+        THEN 1
+        ELSE 0
+    END AS "V95",
+    -- V96. Մերժվել է միայն վերագրված եկամուտների ավելացումից հետո մեկ հաշվարկային անդամի հաշվով ՆՊԶ շեմը գերազանցելու պատճառով։
+    CASE
+        WHEN app."Status" = 30
+         AND EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationRejection" AS income_rejection
+             WHERE income_rejection."ApplicationID" = laf."TargetAppID"
+               AND income_rejection."RejectionReasonID" = 3
+         )
+         AND NOT EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationRejection" AS other_rejection
+             WHERE other_rejection."ApplicationID" = laf."TargetAppID"
+               AND other_rejection."RejectionReasonID" <> 3
+         )
+         AND COALESCE(b."AdultEquivalent", ae."AdultEquivalent") > 0
+         AND v96_income.documented_total / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent"), 0) <=
+             CASE
+                 WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2025 THEN 34581
+                 WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2026 THEN 35875
+                 ELSE 35875
+             END
+         AND (v96_income.documented_total + v96_income.imputed_total)
+             / NULLIF(COALESCE(b."AdultEquivalent", ae."AdultEquivalent"), 0) >
+             CASE
+                 WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2025 THEN 34581
+                 WHEN EXTRACT(YEAR FROM app."DateSubmitted") = 2026 THEN 35875
+                 ELSE 35875
+             END
+        THEN 1
+        ELSE 0
+    END AS "V96",
+   -- V97. Մերժման պատճառ 8 և դիմումի համար որևէ stop factor-ի առկայություն։
+   CASE
+       WHEN EXISTS (
+           SELECT 1
+           FROM "public"."ApplicationRejection" AS rejection
+           WHERE rejection."ApplicationID" = laf."TargetAppID"
+             AND rejection."RejectionReasonID" = 8
+       )
+       AND EXISTS (
+           SELECT 1
+           FROM "public"."ApplicationStopFactor" AS stop_factor
+           WHERE stop_factor."ApplicationID" = laf."TargetAppID"
+             AND stop_factor."StopFactorID" IS NOT NULL
+       )
+       THEN 1
+       ELSE 0
+   END AS "V97",
+   -- V98. Նպաստի մերժում և՛ փաստագրված եկամտի շեմի գերազանցման, և՛ բացառող գործոնի հիմքով։
+   CASE
+       WHEN EXISTS (
+           SELECT 1
+           FROM "public"."ApplicationRejection" AS income_rejection
+           WHERE income_rejection."ApplicationID" = laf."TargetAppID"
+             AND income_rejection."RejectionReasonID" = 3
+       )
+       AND EXISTS (
+           SELECT 1
+           FROM "public"."ApplicationRejection" AS stop_rejection
+           WHERE stop_rejection."ApplicationID" = laf."TargetAppID"
+             AND stop_rejection."RejectionReasonID" = 8
+       )
+        THEN 1
+        ELSE 0
+    END AS "V98",
+    -- V99. Մերժվել է միայն տունայցի միավորի պատճառով՝ rejection reason 8 և StopFactorID 9, առանց այլ հիմքերի։
+    CASE
+        WHEN app."Status" = 30
+         AND EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationRejection" AS home_visit_rejection
+             WHERE home_visit_rejection."ApplicationID" = laf."TargetAppID"
+               AND home_visit_rejection."RejectionReasonID" = 8
+         )
+         AND NOT EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationRejection" AS other_rejection
+             WHERE other_rejection."ApplicationID" = laf."TargetAppID"
+               AND other_rejection."RejectionReasonID" <> 8
+         )
+         AND EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationStopFactor" AS home_visit_factor
+             WHERE home_visit_factor."ApplicationID" = laf."TargetAppID"
+               AND home_visit_factor."StopFactorID" = 9
+         )
+         AND NOT EXISTS (
+             SELECT 1
+             FROM "public"."ApplicationStopFactor" AS other_factor
+             WHERE other_factor."ApplicationID" = laf."TargetAppID"
+               AND other_factor."StopFactorID" <> 9
+         )
+        THEN 1
+        ELSE 0
+    END AS "V99",
+   COALESCE(b."BaseBenefit", 0) AS "V100",
+   COALESCE(b."Supplement", 0) AS "V101",
+   COALESCE(b."BaseBenefit", 0) + COALESCE(b."Supplement", 0) AS "V102"
+FROM LatestAppFilter AS laf
+INNER JOIN "public"."Application" AS app ON laf."TargetAppID" = app."ID"
+LEFT JOIN "public"."Benefit" AS b ON laf."TargetAppID" = b."ApplicationID"
+LEFT JOIN "public"."ApplicationEvaluation" AS ae ON laf."TargetAppID" = ae."ApplicationID"
+LEFT JOIN "public"."FamilyType" AS ft 
+    ON ft."ID" = COALESCE(b."FamilyTypeID", ae."FamilyTypeID")
+LEFT JOIN LATERAL (
+    SELECT
+        COALESCE(SUM(
+            COALESCE(bf."RentalAssistanceAmount", h."RentalAssistanceAmount", 0) +
+            COALESCE(bf."MigrantSupportAmount", h."MigrantSupportAmount", 0) +
+            COALESCE(bf."RefugeeSupportAmount", h."RefugeeSupportAmount", 0) +
+            COALESCE(bf."FosterFamilyAmount", h."FosterFamilyAmount", 0) +
+            COALESCE(bf."UrgentSupportAmount", h."UrgentSupportAmount", 0) +
+            COALESCE(bf."ArtsakhSupportAmount", h."ArtsakhSupportAmount", 0) +
+            COALESCE(bf."Pension", h."Pension", 0) +
+            COALESCE(bf."ZinapahAmount", h."ZinapahAmount", 0) +
+            COALESCE(bf."RealEstateNetIncomeAmount", h."RealEstateNetIncomeAmount", 0) +
+            CASE
+                WHEN bf."EmploymentStartDate" > app."DateSubmitted" THEN COALESCE((
+                    SELECT bfh."Salary"
+                    FROM "public"."BenefitFamilyHistory" AS bfh
+                    WHERE (bfh."BenefitFamilyID" = bf."ID" OR bfh."SSN" = h."SSN")
+                      AND (
+                          bfh."Year" < EXTRACT(YEAR FROM app."DateSubmitted")
+                          OR (
+                              bfh."Year" = EXTRACT(YEAR FROM app."DateSubmitted")
+                              AND bfh."Month" <= EXTRACT(MONTH FROM app."DateSubmitted")
+                          )
+                      )
+                    ORDER BY bfh."Year" DESC, bfh."Month" DESC
+                    LIMIT 1
+                ), 0)
+                ELSE COALESCE(bf."Salary", h."Salary", 0)
+            END
+        ), 0) AS documented_total,
+        COALESCE(SUM(
+            COALESCE(bf."AssignedSum", h."AssignedSum", 0) +
+            COALESCE(bf."AdditionalAssignment", 0)
+        ), 0) + COALESCE(b."LivestockIncome", app."LivestockIncome", 0) AS imputed_total
+    FROM "public"."Household" AS h
+    LEFT JOIN "public"."BenefitFamily" AS bf
+        ON bf."BenefitID" = b."ID"
+       AND bf."SSN" = h."SSN"
+    WHERE h."ApplicationID" = laf."TargetAppID"
+      AND COALESCE(bf."AbsenceReasonID", h."AbsenceReasonID") IS NULL
+) AS v96_income ON TRUE
+-- Անշարժ գույք՝ նախ նպաստի արտաքին պատմության վերջին պատասխանը, դրա բացակայության դեպքում՝ դիմումի պատասխանը
+LEFT JOIN LATERAL (
+    SELECT source."Content"
+    FROM (
+        (
+            SELECT history."Content", 1 AS source_priority, history."DateCreated", history."ID" AS source_id
+            FROM "External"."BenefitExternalDataHistory" AS history
+            WHERE history."BenefitID" = b."ID"
+              AND history."BenefitStopFactorID" = 2
+            ORDER BY history."DateCreated" DESC NULLS LAST, history."ID" DESC
+            LIMIT 1
+        )
+        UNION ALL
+        (
+            SELECT response."Content", 2 AS source_priority, response."DateCreated", 0::bigint AS source_id
+            FROM "External"."ApplicationStopFactorResponse" AS response
+            WHERE response."ApplicationID" = laf."TargetAppID"
+              AND response."StopFactorID" = 2
+            ORDER BY response."DateCreated" DESC NULLS LAST
+            LIMIT 1
+        )
+    ) AS source
+    ORDER BY source.source_priority, source."DateCreated" DESC NULLS LAST, source.source_id DESC
+    LIMIT 1
+) AS sfr ON TRUE
+-- Շարժական գույք՝ նախ նպաստի արտաքին պատմության վերջին պատասխանը, դրա բացակայության դեպքում՝ դիմումի պատասխանը
+LEFT JOIN LATERAL (
+    SELECT source."Content"
+    FROM (
+        (
+            SELECT history."Content", 1 AS source_priority, history."DateCreated", history."ID" AS source_id
+            FROM "External"."BenefitExternalDataHistory" AS history
+            WHERE history."BenefitID" = b."ID"
+              AND history."BenefitStopFactorID" = 1
+            ORDER BY history."DateCreated" DESC NULLS LAST, history."ID" DESC
+            LIMIT 1
+        )
+        UNION ALL
+        (
+            SELECT response."Content", 2 AS source_priority, response."DateCreated", 0::bigint AS source_id
+            FROM "External"."ApplicationStopFactorResponse" AS response
+            WHERE response."ApplicationID" = laf."TargetAppID"
+              AND response."StopFactorID" = 1
+            ORDER BY response."DateCreated" DESC NULLS LAST
+            LIMIT 1
+        )
+    ) AS source
+    ORDER BY source.source_priority, source."DateCreated" DESC NULLS LAST, source.source_id DESC
+    LIMIT 1
+) AS sfr1 ON TRUE
+-- Ձեռնարկատիրական գործունեություն՝ նախ նպաստի արտաքին պատմության վերջին պատասխանը, ապա դիմումի պատասխանի fallback-ը
+LEFT JOIN LATERAL (
+    SELECT source."Content"
+    FROM (
+        (
+            SELECT history."Content", 1 AS source_priority, history."DateCreated", history."ID" AS source_id
+            FROM "External"."BenefitExternalDataHistory" AS history
+            WHERE history."BenefitID" = b."ID"
+              AND history."BenefitStopFactorID" = 4
+            ORDER BY history."DateCreated" DESC NULLS LAST, history."ID" DESC
+            LIMIT 1
+        )
+        UNION ALL
+        (
+            SELECT response."Content", 2 AS source_priority, response."DateCreated", 0::bigint AS source_id
+            FROM "External"."ApplicationStopFactorResponse" AS response
+            WHERE response."ApplicationID" = laf."TargetAppID"
+              AND response."StopFactorID" = 4
+            ORDER BY response."DateCreated" DESC NULLS LAST
+            LIMIT 1
+        )
+    ) AS source
+    ORDER BY source.source_priority, source."DateCreated" DESC NULLS LAST, source.source_id DESC
+    LIMIT 1
+) AS sfb4 ON TRUE
+-- Մաքսային վճար՝ նախ նպաստի արտաքին պատմության վերջին պատասխանը, ապա դիմումի պատասխանի fallback-ը
+LEFT JOIN LATERAL (
+    SELECT source."Content"
+    FROM (
+        (
+            SELECT history."Content", 1 AS source_priority, history."DateCreated", history."ID" AS source_id
+            FROM "External"."BenefitExternalDataHistory" AS history
+            WHERE history."BenefitID" = b."ID"
+              AND history."BenefitStopFactorID" = 6
+            ORDER BY history."DateCreated" DESC NULLS LAST, history."ID" DESC
+            LIMIT 1
+        )
+        UNION ALL
+        (
+            SELECT response."Content", 2 AS source_priority, response."DateCreated", 0::bigint AS source_id
+            FROM "External"."ApplicationStopFactorResponse" AS response
+            WHERE response."ApplicationID" = laf."TargetAppID"
+              AND response."StopFactorID" = 6
+            ORDER BY response."DateCreated" DESC NULLS LAST
+            LIMIT 1
+        )
+    ) AS source
+    ORDER BY source.source_priority, source."DateCreated" DESC NULLS LAST, source.source_id DESC
+    LIMIT 1
+) AS sfc6 ON TRUE
+-- Երաշխավորություն՝ նախ նպաստի արտաքին պատմության վերջին պատասխանը, ապա դիմումի պատասխանի fallback-ը
+LEFT JOIN LATERAL (
+    SELECT source."Content"
+    FROM (
+        (
+            SELECT history."Content", 1 AS source_priority, history."DateCreated", history."ID" AS source_id
+            FROM "External"."BenefitExternalDataHistory" AS history
+            WHERE history."BenefitID" = b."ID"
+              AND history."BenefitStopFactorID" = 10
+            ORDER BY history."DateCreated" DESC NULLS LAST, history."ID" DESC
+            LIMIT 1
+        )
+        UNION ALL
+        (
+            SELECT response."Content", 2 AS source_priority, response."DateCreated", 0::bigint AS source_id
+            FROM "External"."ApplicationStopFactorResponse" AS response
+            WHERE response."ApplicationID" = laf."TargetAppID"
+              AND response."StopFactorID" = 10
+            ORDER BY response."DateCreated" DESC NULLS LAST
+            LIMIT 1
+        )
+    ) AS source
+    ORDER BY source.source_priority, source."DateCreated" DESC NULLS LAST, source.source_id DESC
+    LIMIT 1
+) AS sfg10 ON TRUE
+WHERE laf.rn = 1
+ORDER BY "V01" ASC;
